@@ -1,6 +1,3 @@
-from django.test import TestCase
-
-# Create your tests here.
 import json
 import unittest
 from datetime import datetime
