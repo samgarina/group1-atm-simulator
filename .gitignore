@@ -1,6 +1,13 @@
+# Python cache files
 __pycache__/
 *.pyc
+
+# Virtual environments
 env/
 venv/
+
+# IDE and editor settings
 .vscode/
+
+# Django generated files
 db.sqlite3
