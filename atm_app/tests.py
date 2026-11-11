@@ -1,3 +1,9 @@
-from django.test import TestCase
+import unittest
 
-# Create your tests here.
+from .exceptions import (
+    ATMError,
+    InvalidAmountError,
+    InsufficientFundsError,
+    WithdrawalLimitError,
+)
+
