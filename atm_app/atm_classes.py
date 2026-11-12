@@ -5,8 +5,10 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from .exceptions import (
     ATMError,
-    InvalidAmountError,
     InsufficientFundsError,
+    InvalidAmountError,
+    MinimumDepositError,
+    MinimumWithdrawalError,
     WithdrawalLimitError,
 )
 
@@ -60,6 +62,7 @@ class Transaction:
         # No microseconds, so the timestamp survives a to_dict/from_dict round trip.
         self._timestamp = timestamp or datetime.now().replace(microsecond=0)
 
+    # Read-only properties: outside code can read, but not change.
     @property
     def kind(self):
         return self._kind
@@ -109,25 +112,21 @@ class Account:
     MIN_WITHDRAWAL = Decimal("100.00")  # smallest amount allowed in one withdrawal
     MIN_DEPOSIT = Decimal("100.00")     # smallest amount allowed in one deposit
     BILL_STEP = Decimal("100")          # cash is withdrawn or deposited in multiples of this
+    # Only the newest transactions are saved in the session cookie.
     MAX_SAVED_TRANSACTIONS = 10
 
-    # Constructor with account_number, owner (holder_name), and starting balance
     def __init__(self, account_number, holder_name, balance="0", transactions=None):
         if not holder_name or not str(holder_name).strip():
             raise ATMError("Account holder name is required.")
-
         balance = _to_money(balance)
         if balance < 0:
             raise InvalidAmountError("Opening balance cannot be negative.")
-
         self._account_number = str(account_number)
         self._holder_name = str(holder_name).strip()
-
-        # Private _balance
         self._balance = balance
         self._transactions = list(transactions) if transactions else []
 
-    # Read-only properties
+    # Read-only properties.
     @property
     def account_number(self):
         return self._account_number
@@ -167,9 +166,20 @@ class Account:
             raise InvalidAmountError("Amount must be greater than zero.")
         return amount
 
+    def _check_bill_step(self, amount):
+        """Cash comes in whole bills: the amount must be a multiple of BILL_STEP."""
+        if amount % self.BILL_STEP != 0:
+            raise InvalidAmountError(
+                f"Amount must be in multiples of PHP {self.BILL_STEP}."
+            )
+
     def check_deposit(self, amount):
         """Check a deposit. Return the clean amount. Change nothing."""
-        return self._validate_amount(amount)
+        amount = self._validate_amount(amount)
+        if amount < self.MIN_DEPOSIT:
+            raise MinimumDepositError(f"Minimum deposit is PHP {self.MIN_DEPOSIT}.")
+        self._check_bill_step(amount)
+        return amount
 
     def deposit(self, amount):
         amount = self.check_deposit(amount)
@@ -186,6 +196,11 @@ class Account:
         Child classes override this to add their own rules.
         """
         amount = self._validate_amount(amount)
+        if amount < self.MIN_WITHDRAWAL:
+            raise MinimumWithdrawalError(
+                f"Minimum withdrawal is PHP {self.MIN_WITHDRAWAL}."
+            )
+        self._check_bill_step(amount)
         if amount > self._balance:
             raise InsufficientFundsError()
         return amount
@@ -198,3 +213,59 @@ class Account:
         self._balance = new_balance
         self._transactions.append(transaction)
         return transaction
+
+    def to_dict(self):
+        """Convert to a plain dict for the Django session."""
+        return {
+            "account_type": self.account_type,
+            "account_number": self._account_number,
+            "holder_name": self._holder_name,
+            "balance": str(self._balance),
+            "transactions": [
+                t.to_dict() for t in self._transactions[-self.MAX_SAVED_TRANSACTIONS:]
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Rebuild an account from a dict made by to_dict()."""
+        return cls(
+            account_number=data["account_number"],
+            holder_name=data["holder_name"],
+            balance=data["balance"],
+            transactions=[Transaction.from_dict(t) for t in data["transactions"]],
+        )
+
+    def __str__(self):
+        return f"{self.account_type} {self._account_number} ({self._holder_name}): PHP {self._balance}"
+
+
+class SavingsAccount(Account):
+    """A savings account. It keeps a minimum balance and a lower withdrawal limit."""
+    account_type = "Savings Account"
+    MINIMUM_BALANCE = Decimal("500.00")
+    MAX_WITHDRAWAL = Decimal("5000.00")
+
+    def __init__(self, account_number, holder_name, balance="0", transactions=None):
+        # Let the parent do its normal setup and checks first.
+        super().__init__(account_number, holder_name, balance, transactions)
+        # Then add the savings rule.
+        if self._balance < self.MINIMUM_BALANCE:
+            raise InvalidAmountError(
+                f"Opening balance must be at least PHP {self.MINIMUM_BALANCE}."
+            )
+
+    def check_withdrawal(self, amount):
+        # Common rules first (amount, minimum withdrawal, bills, balance).
+        amount = super().check_withdrawal(amount)
+        # Savings rule 1: the balance after withdrawal must stay at or above the minimum.
+        if self._balance - amount < self.MINIMUM_BALANCE:
+            raise InsufficientFundsError(
+                f"Savings accounts must keep a minimum balance of PHP {self.MINIMUM_BALANCE}."
+            )
+        # Savings rule 2: one withdrawal cannot be above the savings limit.
+        if amount > self.MAX_WITHDRAWAL:
+            raise WithdrawalLimitError(
+                f"Savings accounts allow a maximum of PHP {self.MAX_WITHDRAWAL} per withdrawal."
+            )
+        return amount
