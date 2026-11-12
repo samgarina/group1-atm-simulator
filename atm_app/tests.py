@@ -19,6 +19,7 @@ from .atm_classes import (
 
 D = Decimal
 
+# tests.py
 class AccountBasicsTests(unittest.TestCase):
     """Goals 3, 4, 5 on the parent class."""
     
@@ -51,3 +52,5 @@ class MoneyTests(unittest.TestCase):
     def test_huge_value_rejected_cleanly(self):
         with self.assertRaises(InvalidAmountError):
             _to_money("1" * 40)
+
+    
