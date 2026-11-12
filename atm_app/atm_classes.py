@@ -11,6 +11,7 @@ from .exceptions import (
     WithdrawalLimitError,
 )
 
+# added by senilong
 def _to_money(value):
     """Turn a value into a Decimal with exactly 2 decimal places.
 
