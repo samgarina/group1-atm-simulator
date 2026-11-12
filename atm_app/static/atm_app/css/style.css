@@ -1,0 +1,32 @@
+/* PELEC Bank ATM.
+   The machine is sized in em. It is 60em wide and its font-size shrinks
+   with the window, so it scales as one piece. */
+
+:root {
+  --wall: #cdd1d6;
+  --floor: #aab0b8;
+  --steel-hi: #5b626a;
+  --steel: #3b4047;
+  --steel-lo: #2a2e34;
+  --glass: #0a0d11;
+  --screen-hi: #14478a;
+  --screen-lo: #0a2652;
+  --ink: #eaf3ff;
+  --ink-dim: #a8c2e6;
+  --brass: #d6ae56;
+  --led: #3ee38f;
+  --font-ui: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 1.5rem 12px 3rem;
+  font-family: var(--font-ui);
+  color: #1c2127;
+  background: linear-gradient(var(--wall) 0%, var(--wall) 60%, var(--floor) 100%);
+}
+
