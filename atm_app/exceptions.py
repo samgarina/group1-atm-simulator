@@ -25,4 +25,31 @@ class WithdrawalLimitError(ATMError):
 
     default_message = "Withdrawal exceeds the allowed limit."
 
+class MinimumWithdrawalError(ATMError):
+    """Withdrawal is below the account's minimum withdrawal."""
 
+    default_message = "Amount is below the minimum withdrawal."
+
+class InvalidPinError(ATMError):
+    """PIN has the wrong format, or two typed PINs do not match."""
+
+    default_message = "Invalid PIN. Enter exactly 6 digits."
+
+class IncorrectPinError(ATMError):
+    """The typed PIN is wrong. The card is not blocked yet."""
+
+    default_message = "Incorrect PIN. Please try again."
+
+    def __init__(self, message=None, attempts_left=None):
+        self.attempts_left = attempts_left
+        super().__init__(message)
+
+class CardBlockedError(ATMError):
+    """The card is blocked after too many wrong PIN attempts."""
+
+    default_message = "Card blocked. Too many incorrect PIN attempts."
+
+class MinimumDepositError(ATMError):
+    """Deposit is below the account's minimum deposit."""
+
+    default_message = "Amount is below the minimum deposit."
