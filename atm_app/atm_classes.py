@@ -3,7 +3,6 @@ import hmac
 import os
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-
 from .exceptions import (
     ATMError,
     InvalidAmountError,
@@ -11,9 +10,9 @@ from .exceptions import (
     WithdrawalLimitError,
 )
 
+
 def _to_money(value):
     """Turn a value into a Decimal with exactly 2 decimal places.
-
     Raises InvalidAmountError if the value is not a valid money number.
     """
     try:
@@ -35,7 +34,74 @@ def _to_money(value):
     except InvalidOperation:
         # Number has too many digits for Decimal to hold.
         raise InvalidAmountError("Amount is too large.")
-    
+
+
+def format_money(value):
+    """Return money as text for the screen, for example 'PHP 5,000.00'."""
+    return f"PHP {value:,.2f}"
+
+
+class Transaction:
+    """One successful ATM operation (a deposit or a withdrawal)."""
+    VALID_KINDS = ("deposit", "withdrawal")
+
+    def __init__(self, kind, amount, balance_after, timestamp=None):
+        if kind not in self.VALID_KINDS:
+            raise ATMError("Unknown transaction type.")
+        amount = _to_money(amount)
+        balance_after = _to_money(balance_after)
+        if amount <= 0:
+            raise InvalidAmountError("Amount must be greater than zero.")
+        if balance_after < 0:
+            raise InvalidAmountError("Balance cannot be negative.")
+        self._kind = kind
+        self._amount = amount
+        self._balance_after = balance_after
+        # No microseconds, so the timestamp survives a to_dict/from_dict round trip.
+        self._timestamp = timestamp or datetime.now().replace(microsecond=0)
+
+    @property
+    def kind(self):
+        return self._kind
+
+    @property
+    def amount(self):
+        return self._amount
+
+    @property
+    def balance_after(self):
+        return self._balance_after
+
+    @property
+    def timestamp(self):
+        return self._timestamp
+
+    def to_dict(self):
+        """Convert to a plain dict that can be saved in a Django session."""
+        return {
+            "kind": self._kind,
+            "amount": str(self._amount),
+            "balance_after": str(self._balance_after),
+            "timestamp": self._timestamp.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Rebuild a Transaction from a dict made by to_dict()."""
+        return cls(
+            kind=data["kind"],
+            amount=data["amount"],
+            balance_after=data["balance_after"],
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+        )
+
+    def __str__(self):
+        return (
+            f"{self._timestamp:%Y-%m-%d %H:%M:%S} | {self._kind} | "
+            f"PHP {self._amount} | balance PHP {self._balance_after}"
+        )
+
+
 class Account:
     """A bank account. Parent class of SavingsAccount and CheckingAccount."""
     account_type = "Account"
@@ -49,23 +115,19 @@ class Account:
     def __init__(self, account_number, holder_name, balance="0", transactions=None):
         if not holder_name or not str(holder_name).strip():
             raise ATMError("Account holder name is required.")
-        
+
         balance = _to_money(balance)
         if balance < 0:
             raise InvalidAmountError("Opening balance cannot be negative.")
-        
+
         self._account_number = str(account_number)
         self._holder_name = str(holder_name).strip()
-        
+
         # Private _balance
         self._balance = balance
         self._transactions = list(transactions) if transactions else []
 
-    # Read-only balance property
-    @property
-    def balance(self):
-        return self._balance
-
+    # Read-only properties
     @property
     def account_number(self):
         return self._account_number
@@ -73,3 +135,66 @@ class Account:
     @property
     def holder_name(self):
         return self._holder_name
+
+    @property
+    def masked_number(self):
+        """Account number with only the last 4 digits shown."""
+        return "****" + self._account_number[-4:]
+
+    @property
+    def balance(self):
+        return self._balance
+
+    @property
+    def transactions(self):
+        # Return a copy so outside code cannot edit the real history.
+        return list(self._transactions)
+
+    def available_for(self, balance):
+        """Money that can be taken out when the balance is this amount.
+        It is the balance minus the minimum balance, and never below zero.
+        """
+        return max(balance - self.MINIMUM_BALANCE, Decimal("0.00"))
+
+    @property
+    def available_balance(self):
+        return self.available_for(self._balance)
+
+    def _validate_amount(self, amount):
+        """Return amount as clean Decimal. Raise if zero or negative."""
+        amount = _to_money(amount)
+        if amount <= 0:
+            raise InvalidAmountError("Amount must be greater than zero.")
+        return amount
+
+    def check_deposit(self, amount):
+        """Check a deposit. Return the clean amount. Change nothing."""
+        return self._validate_amount(amount)
+
+    def deposit(self, amount):
+        amount = self.check_deposit(amount)
+        new_balance = self._balance + amount
+        # Build the record first. If anything fails, the balance is untouched.
+        transaction = Transaction("deposit", amount, new_balance)
+        self._balance = new_balance
+        self._transactions.append(transaction)
+        return transaction
+
+    def check_withdrawal(self, amount):
+        """Check a withdrawal. Return the clean amount. Change nothing.
+        Raises an ATMError if the withdrawal is not allowed.
+        Child classes override this to add their own rules.
+        """
+        amount = self._validate_amount(amount)
+        if amount > self._balance:
+            raise InsufficientFundsError()
+        return amount
+
+    def withdraw(self, amount):
+        # The rules live in check_withdrawal(). Each account type has its own.
+        amount = self.check_withdrawal(amount)
+        new_balance = self._balance - amount
+        transaction = Transaction("withdrawal", amount, new_balance)
+        self._balance = new_balance
+        self._transactions.append(transaction)
+        return transaction
