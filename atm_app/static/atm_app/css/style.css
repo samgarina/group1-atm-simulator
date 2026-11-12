@@ -30,3 +30,201 @@ body {
   background: linear-gradient(var(--wall) 0%, var(--wall) 60%, var(--floor) 100%);
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+button { font-family: inherit; }
+
+:focus-visible {
+  outline: 0.18em solid var(--brass);
+  outline-offset: 0.15em;
+}
+
+/* ---------- the machine ---------- */
+
+.atm {
+  font-size: min(16px, calc((100vw - 24px) / 60));
+  width: 60em;
+  margin: 0 auto;
+  padding: 1.6em 2em 2em;
+  color: #e6e9ed;
+  border-radius: 1.4em 1.4em 0.8em 0.8em;
+  background: linear-gradient(170deg, var(--steel-hi), var(--steel) 40%, var(--steel-lo));
+  box-shadow:
+    0 0 0 0.15em #1a1d21,
+    0 2em 3em rgba(20, 25, 32, 0.45),
+    inset 0 0.1em 0 rgba(255, 255, 255, 0.18);
+}
+
+.atm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.2em;
+  padding-bottom: 0.8em;
+  border-bottom: 0.12em solid var(--brass);
+}
+
+.brand { display: flex; align-items: center; gap: 0.7em; }
+
+.atm-header h1 {
+  margin: 0;
+  font-size: 1.7em;
+  font-weight: 700;
+  color: #f4f6f8;
+}
+
+.brand-note { margin: 0; font-size: 0.85em; color: #b9c0c8; }
+
+.power-led {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: var(--led);
+  box-shadow: 0 0 0.6em var(--led);
+}
+
+/* ---------- bezel: side button and monitor ---------- */
+
+.machine-top {
+  display: grid;
+  grid-template-columns: 6.5em 1fr;
+  align-items: stretch;
+  padding: 1em 0.6em;
+  border-radius: 1em;
+  background: var(--glass);
+  box-shadow: inset 0 0.2em 0.6em rgba(0, 0, 0, 0.8), 0 0.1em 0 rgba(255, 255, 255, 0.12);
+}
+
+.side-buttons {
+  display: grid;
+  align-content: end;
+  justify-items: center;
+  gap: 1.4em;
+  padding-bottom: 1em;
+}
+
+.side-buttons button {
+  width: 4.4em;
+  height: 2.2em;
+  padding: 0;
+  border: 0;
+  border-radius: 0.45em;
+  cursor: pointer;
+  background: linear-gradient(#eef1f4, #aab2ba);
+  box-shadow: 0 0.18em 0 #697078, 0 0.3em 0.5em rgba(0, 0, 0, 0.5);
+}
+
+.side-buttons button:active {
+  transform: translateY(0.12em);
+  box-shadow: 0 0.06em 0 #697078;
+}
+
+/* ---------- monitor ---------- */
+
+.monitor {
+  height: 33em;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  color: var(--ink);
+  border-radius: 0.7em;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 0.08em, transparent 0.08em 0.22em),
+    radial-gradient(120% 90% at 50% 0%, var(--screen-hi), var(--screen-lo));
+  box-shadow: inset 0 0 2.2em rgba(0, 0, 0, 0.55), 0 0 0 0.18em #05070a;
+}
+
+.monitor-title {
+  margin: 0;
+  padding: 0.8em 1.2em 0.2em;
+  font-size: 1em;
+  font-weight: 600;
+  text-align: center;
+  color: var(--brass);
+}
+
+.monitor-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.6em;
+  overflow: auto;
+  text-align: center;
+}
+
+.monitor-message {
+  margin: 0;
+  font-size: 1.3em;
+  line-height: 1.35;
+}
+
+.monitor-rows {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 2em;
+  row-gap: 0.25em;
+  margin: 0.8em 0 0;
+  font-size: 0.95em;
+  text-align: left;
+}
+.monitor-rows dt { color: var(--ink-dim); }
+.monitor-rows dd { margin: 0; text-align: right; font-family: var(--font-mono); }
+
+/* ---------- entry forms inside the monitor ---------- */
+
+.entry-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em 0.8em;
+  margin-top: 0.9em;
+}
+.entry-form label { font-size: 0.85em; color: var(--ink-dim); }
+
+.entry-form input {
+  width: 11em;
+  padding: 0.35em 0.5em;
+  font: 1.4em var(--font-mono);
+  text-align: center;
+  letter-spacing: 0.2em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+  border: 0.08em solid var(--brass);
+  border-radius: 0.3em;
+}
+
+/* Change PIN: three prompts, each label next to its field. */
+.entry-form-stack {
+  display: grid;
+  grid-template-columns: max-content 8em;
+  gap: 0.4em 0.8em;
+  justify-content: center;
+}
+.entry-form-stack label { text-align: right; }
+.entry-form-stack input { width: 100%; font-size: 1.1em; }
+.entry-form-stack .entry-submit { grid-column: 1 / -1; justify-self: center; }
+
+.entry-submit {
+  padding: 0.35em 1em;
+  font-size: 0.9em;
+  color: var(--brass);
+  background: transparent;
+  border: 0.08em solid var(--brass);
+  border-radius: 0.3em;
+  cursor: pointer;
+}
+
+/* Small screens: keep the machine at a readable size and let the page scroll sideways. */
+@media (max-width: 640px) {
+  body { overflow-x: auto; }
+  .atm { font-size: 9px; }
+}
