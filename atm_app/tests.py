@@ -14,7 +14,6 @@ from .atm_classes import (
 
 D = Decimal
 
-
 class AccountBasicsTests(unittest.TestCase):
     """Goals 3, 4, 5 on the parent class."""
 
@@ -65,6 +64,27 @@ class AccountBasicsTests(unittest.TestCase):
         with self.assertRaises(InvalidAmountError):
             Account("2", "Bo", "-1")
 
-
 if __name__ == "__main__":
     unittest.main()
+
+class MoneyTests(unittest.TestCase):
+    """Goal 6: Decimal accuracy and input cleaning."""
+
+    def test_float_is_exact(self):
+        self.assertEqual(_to_money(0.1) + _to_money(0.2), D("0.30"))
+
+    def test_always_two_places(self):
+        self.assertEqual(str(_to_money("5.5")), "5.50")
+        self.assertEqual(str(_to_money(7)), "7.00")
+
+    def test_bad_values_rejected(self):
+        for bad in ["abc", "", None, "NaN", "Infinity", "-Infinity", "1.234", True]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(InvalidAmountError):
+                    _to_money(bad)
+
+    def test_huge_value_rejected_cleanly(self):
+        with self.assertRaises(InvalidAmountError):
+            _to_money("1" * 40)
+
+    
