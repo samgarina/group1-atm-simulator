@@ -3,9 +3,13 @@ from decimal import Decimal
 from types import SimpleNamespace
 import unittest
 
-from .atm_classes import Account, ATMService, Transaction
-from .exceptions import ATMError, InvalidAmountError
-
+from .atm_classes import Account, ATMService, SavingsAccount, Transaction
+from .exceptions import (
+    ATMError,
+    InsufficientFundsError,
+    InvalidAmountError,
+    WithdrawalLimitError,
+)
 
 D = Decimal
 
@@ -126,3 +130,57 @@ class ATMServiceDepositTests(unittest.TestCase):
 
     def test_list_accounts(self):
         self.assertEqual(len(self.make().list_accounts()), 1)
+
+class ATMServiceWithdrawTests(unittest.TestCase):
+
+    def test_sample_accounts(self):
+        service = ATMService.with_sample_accounts()
+        self.assertEqual(len(service.list_accounts()), 2)
+        self.assertEqual(service.get_account("1001").account_type, "Savings Account")
+        self.assertEqual(service.get_account("2001").account_type, "Checking Account")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+        self.assertEqual(service.get_balance("2001"), D("25000.00"))
+
+    def test_withdraw_records_a_transaction(self):
+        service = ATMService.with_sample_accounts()
+        t = service.withdraw("1001", "1000")
+        self.assertEqual(t.kind, "withdrawal")
+        self.assertEqual(t.balance_after, D("14000.00"))
+        self.assertEqual(service.get_balance("1001"), D("14000.00"))
+        self.assertEqual(service.get_history("1001"), [t])
+
+    def test_same_withdraw_call_gives_different_results(self):
+        """Polymorphism: Savings has a lower limit than Checking."""
+        service = ATMService.with_sample_accounts()
+        with self.assertRaises(WithdrawalLimitError):
+            service.withdraw("1001", "6000")               # Savings
+        t = service.withdraw("2001", "6000")               # Checking
+        self.assertEqual(t.balance_after, D("19000.00"))
+
+    def test_failed_withdrawal_keeps_balance_and_history(self):
+        # negative, text, below minimum, not a multiple of 100,
+        # over the balance, below the savings minimum balance
+        for amount in ("-100", "abc", "50", "150", "20000", "14600"):
+            with self.subTest(amount=amount):
+                service = ATMService.with_sample_accounts()
+                with self.assertRaises(ATMError):
+                    service.withdraw("1001", amount)
+                self.assertEqual(service.get_balance("1001"), D("15000.00"))
+                self.assertEqual(service.get_history("1001"), [])
+
+    def test_savings_boundary_at_the_minimum_balance(self):
+        service = ATMService([SavingsAccount("3001", "Test Holder", "5500")])
+        t = service.withdraw("3001", "5000")               # leaves exactly 500
+        self.assertEqual(t.balance_after, D("500.00"))
+        with self.assertRaises(InsufficientFundsError):
+            service.withdraw("3001", "100")                # would go below 500
+        self.assertEqual(service.get_balance("3001"), D("500.00"))
+
+    def test_history_is_oldest_first_and_cannot_be_edited(self):
+        service = ATMService.with_sample_accounts()
+        first = service.deposit("1001", "500")
+        second = service.withdraw("1001", "300")
+        history = service.get_history("1001")
+        self.assertEqual(history, [first, second])
+        history.append("junk")                             # change the copy only
+        self.assertEqual(service.get_history("1001"), [first, second])
