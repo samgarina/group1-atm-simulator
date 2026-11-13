@@ -25,10 +25,10 @@ Savings rule: <rule and value>. Checking rule: <rule and value>.
 parse_amount(raw) returns a number and raises <invalid amount>.
 It checks the format only. Zero, negative and overdraft are checked by Account.
 
-## 4. Transaction (atm_logic.py, owner: Senilong)
+## 4. Transaction (atm_classes.py.py, owner: Senilong)
 Fields: <type, amount, balance after, time>. Method: to_dict().
 
-## 5. ATMService (atm_logic.py, owner: Senilong)
+## 5. ATMService (atm_classes.py, owner: Senilong)
 | Method | Parameters | Returns | Raises |
 |---|---|---|---|
 | deposit | account, amount | Transaction | <exceptions> |
