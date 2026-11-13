@@ -42,19 +42,22 @@
           </dl>
 
           {% if screen.input_mode == "pin" %}
-            <form id="entry-form" class="entry-form" method="post" action="#">
+          <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_pin' %}">
+            {% csrf_token %}
             <label for="pin">PIN</label>
             <input type="password" id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>
-            </form>
-            {% elif screen.input_mode == "amount" %}
-            <form id="entry-form" class="entry-form" method="post" action="#">
+          </form>
+          {% elif screen.input_mode == "amount" %}
+          <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_amount' %}">
+            {% csrf_token %}
             <label for="amount">Amount (PHP)</label>
             <input type="text" id="amount" name="amount" inputmode="decimal" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>
-            </form>
-            {% elif screen.input_mode == "change_pin" %}
-            <form id="entry-form" class="entry-form entry-form-stack" method="post" action="#">
+          </form>
+          {% elif screen.input_mode == "change_pin" %}
+          <form id="entry-form" class="entry-form entry-form-stack" method="post" action="{% url 'atm_app:change_pin' %}">
+            {% csrf_token %}
             <label for="current_pin">{{ screen.prompts.0 }}</label>
             <input type="password" id="current_pin" name="current_pin" inputmode="numeric" maxlength="6" autocomplete="off">
             <label for="new_pin">{{ screen.prompts.1 }}</label>
@@ -62,8 +65,8 @@
             <label for="confirm_pin">{{ screen.prompts.2 }}</label>
             <input type="password" id="confirm_pin" name="confirm_pin" inputmode="numeric" maxlength="6" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>
-            </form>
-            {% endif %}
+          </form>
+          {% endif %}
         </div>
       </div>
     </section>
