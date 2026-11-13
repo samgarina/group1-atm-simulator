@@ -9,6 +9,7 @@ from .exceptions import (
     WithdrawalLimitError,
 )
 from .atm_classes import (
+    ATMService,
     Account,
     CheckingAccount,
     SavingsAccount,
@@ -284,6 +285,59 @@ class PolymorphismTests(unittest.TestCase):
     def test_is_a_relationship(self):
         self.assertIsInstance(SavingsAccount("S", "A", "500"), Account)
         self.assertIsInstance(CheckingAccount("C", "B"), Account)
+
+
+class SerializationTests(unittest.TestCase):
+    """Goal 7."""
+    def test_account_round_trip_keeps_type_and_history(self):
+        for cls, start in [(SavingsAccount, "5000"), (CheckingAccount, "5000")]:
+            with self.subTest(cls=cls.__name__):
+                a = cls("1", "Ana", start)
+                a.deposit("200")
+                a.withdraw("100")
+                b = cls.from_dict(a.to_dict())
+                self.assertIs(type(b), cls)
+                self.assertEqual(b.balance, a.balance)
+                self.assertEqual(
+                    [t.to_dict() for t in b.transactions],
+                    [t.to_dict() for t in a.transactions],
+                )
+                c = Account.from_dict(a.to_dict())
+                self.assertIs(type(c), cls)
+                self.assertEqual(c.balance, a.balance)
+
+    def test_restored_account_still_enforces_rule(self):
+        a = SavingsAccount("1", "Ana", "1000")
+        b = SavingsAccount.from_dict(a.to_dict())
+        with self.assertRaises(InsufficientFundsError):
+            b.withdraw("600")
+
+    def test_unknown_type_rejected(self):
+        with self.assertRaises(ATMError):
+            Account.from_dict({"account_type": "Gold"})
+        with self.assertRaises(ATMError):
+            ATMService.from_dict({"accounts": [{"account_type": "Gold"}]})
+
+
+class HistoryCapTests(unittest.TestCase):
+    """Phase 5: saved history keeps only the newest transactions."""
+    def test_saved_history_keeps_last_ten(self):
+        acc = CheckingAccount("1", "Ana", "0")
+        for i in range(1, 16):
+            acc.deposit(str(i * 100))
+        saved = acc.to_dict()["transactions"]
+        self.assertEqual(len(saved), Account.MAX_SAVED_TRANSACTIONS)
+        self.assertEqual(saved[0]["amount"], "600.00")    # oldest one kept
+        self.assertEqual(saved[-1]["amount"], "1500.00")  # newest
+        self.assertEqual(len(acc.transactions), 15)       # memory untouched
+
+    def test_balance_stays_exact_after_trim(self):
+        acc = CheckingAccount("1", "Ana", "0")
+        for i in range(1, 16):
+            acc.deposit(str(i * 100))
+        restored = CheckingAccount.from_dict(acc.to_dict())
+        self.assertEqual(restored.balance, D("12000.00"))
+        self.assertEqual(len(restored.transactions), 10)
 
 
 if __name__ == "__main__":
