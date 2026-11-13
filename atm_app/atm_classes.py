@@ -272,6 +272,15 @@ class SavingsAccount(Account):
         return amount
 
 
+class CheckingAccount(Account):
+    pass
+
+class Receipt:
+    pass
+
+class Card:
+    pass
+
 
 
 
