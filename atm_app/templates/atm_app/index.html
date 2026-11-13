@@ -44,6 +44,7 @@
           {% if screen.input_mode == "pin" %}
           <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_pin' %}">
             {% csrf_token %}
+          <form id="entry-form" class="entry-form" method="post" action="#">
             <label for="pin">PIN</label>
             <input type="password" id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>
@@ -51,6 +52,7 @@
           {% elif screen.input_mode == "amount" %}
           <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_amount' %}">
             {% csrf_token %}
+          <form id="entry-form" class="entry-form" method="post" action="#">
             <label for="amount">Amount (PHP)</label>
             <input type="text" id="amount" name="amount" inputmode="decimal" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>

@@ -1,3 +1,21 @@
-from django.shortcuts import render
+from django.http import HttpResponse
 
-# Create your views here.
+
+# Dashboard placeholder
+def dashboard(request):
+    return HttpResponse("ATM Dashboard Placeholder")
+
+
+# Deposit placeholder
+def deposit(request):
+    return HttpResponse("Deposit Placeholder")
+
+
+# Withdraw placeholder
+def withdraw(request):
+    return HttpResponse("Withdraw Placeholder")
+
+
+# Reset placeholder
+def reset(request):
+    return HttpResponse("Reset Placeholder")
