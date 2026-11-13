@@ -386,6 +386,7 @@ class ATMService:
     def deposit(self, account_number, amount):
         return self.get_account(account_number).deposit(amount)
 
+    # added withdraw
     def withdraw(self, account_number, amount):
         # The service does not know the account type. Each account applies its own rule.
         return self.get_account(account_number).withdraw(amount)
