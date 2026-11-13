@@ -3,7 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 import unittest
 
-from .atm_classes import ATMService, Transaction
+from .atm_classes import Account, ATMService, Transaction
 from .exceptions import ATMError, InvalidAmountError
 
 
@@ -71,3 +71,58 @@ class TransactionTests(unittest.TestCase):
         t = Transaction("deposit", "500", "1500")
         with self.assertRaises(AttributeError):
             t.amount = 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class ATMServiceDepositTests(unittest.TestCase):
+
+    def make(self):
+        return ATMService([Account("1001", "Test Holder", "1000")])
+
+    def test_deposit_records_a_transaction(self):
+        service = self.make()
+        t = service.deposit("1001", "500")
+        self.assertIsInstance(t, Transaction)
+        self.assertEqual(t.kind, "deposit")
+        self.assertEqual(t.amount, D("500.00"))
+        self.assertEqual(t.balance_after, D("1500.00"))
+        self.assertEqual(service.get_balance("1001"), D("1500.00"))
+        self.assertEqual(service.get_account("1001").transactions, [t])
+
+    def test_account_number_works_as_text_or_number(self):
+        service = self.make()
+        service.deposit(1001, "100")
+        self.assertEqual(service.get_balance("1001"), D("1100.00"))
+
+    def test_invalid_deposit_changes_nothing(self):
+        # zero, negative, text, below the minimum, not a multiple of 100
+        for amount in ("0", "-100", "abc", "50", "150"):
+            with self.subTest(amount=amount):
+                service = self.make()
+                with self.assertRaises(ATMError):
+                    service.deposit("1001", amount)
+                self.assertEqual(service.get_balance("1001"), D("1000.00"))
+                self.assertEqual(service.get_account("1001").transactions, [])
+
+    def test_unknown_account_is_rejected(self):
+        with self.assertRaises(ATMError):
+            self.make().deposit("9999", "100")
+
+    def test_duplicate_account_number_is_rejected(self):
+        service = self.make()
+        with self.assertRaises(ATMError):
+            service.add_account(Account("1001", "Another Holder", "0"))
+
+    def test_list_accounts(self):
+        self.assertEqual(len(self.make().list_accounts()), 1)
