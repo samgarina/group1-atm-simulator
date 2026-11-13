@@ -12,7 +12,6 @@ from .exceptions import (
     WithdrawalLimitError,
 )
 
-# added by senilong
 
 # added by senilong
 def _to_money(value):
@@ -216,6 +215,38 @@ class Account:
         self._transactions.append(transaction)
         return transaction
 
+    def to_dict(self):
+        """Convert to a plain dict for the Django session."""
+        return {
+            "account_type": self.account_type,
+            "account_number": self._account_number,
+            "holder_name": self._holder_name,
+            "balance": str(self._balance),
+            "transactions": [
+                t.to_dict() for t in self._transactions[-self.MAX_SAVED_TRANSACTIONS:]
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Rebuild an account from a dict made by to_dict()."""
+        target_cls = cls
+        if cls is Account and "account_type" in data:
+            account_classes = {
+                SavingsAccount.account_type: SavingsAccount,
+                CheckingAccount.account_type: CheckingAccount,
+                Account.account_type: Account,
+            }
+            target_cls = account_classes.get(data["account_type"])
+            if target_cls is None:
+                raise ATMError("Unknown account type in saved data.")
+        return target_cls(
+            account_number=data["account_number"],
+            holder_name=data["holder_name"],
+            balance=data["balance"],
+            transactions=[Transaction.from_dict(t) for t in data["transactions"]],
+        )
+
     def __str__(self):
         return f"{self.account_type} {self._account_number} ({self._holder_name}): PHP {self._balance}"
 
@@ -266,7 +297,6 @@ class CheckingAccount(Account):
             )
         return amount
 
-    pass
 
 class Receipt:
     pass
@@ -275,13 +305,11 @@ class Receipt:
 class Card:
     pass
 
-        
+
 class ATMService:
     """The ATM machine. Holds all accounts and runs operations on them.
-
     Django views talk to this class. This class talks to the accounts.
     """
-
     # Maps the saved account_type text back to the right class.
     ACCOUNT_CLASSES = {
         SavingsAccount.account_type: SavingsAccount,
@@ -384,7 +412,7 @@ class ATMService:
             "accounts": [a.to_dict() for a in self._accounts.values()],
             "cards": [c.to_dict() for c in self._cards.values()],
         }
-      
+
     @classmethod
     def from_dict(cls, data):
         """Rebuild the service from a dict made by to_dict()."""
