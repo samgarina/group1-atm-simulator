@@ -270,3 +270,135 @@ class SavingsAccount(Account):
                 f"Savings accounts allow a maximum of PHP {self.MAX_WITHDRAWAL} per withdrawal."
             )
         return amount
+
+
+
+
+
+
+
+
+
+
+
+
+        
+class ATMService:
+    """The ATM machine. Holds all accounts and runs operations on them.
+
+    Django views talk to this class. This class talks to the accounts.
+    """
+
+    # Maps the saved account_type text back to the right class.
+    ACCOUNT_CLASSES = {
+        SavingsAccount.account_type: SavingsAccount,
+        CheckingAccount.account_type: CheckingAccount,
+    }
+
+    # Demo cards: (card number, account number, starting PIN). Fictional data.
+    SAMPLE_CARDS = (
+        ("5000000000001001", "1001", "123456"),
+        ("5000000000002001", "2001", "654321"),
+    )
+
+    def __init__(self, accounts=None, cards=None):
+        self._accounts = {}  # account_number -> account object
+        self._cards = {}     # card_number -> card object
+        for account in accounts or []:
+            self.add_account(account)
+        # Cards come after accounts: each card must point to a real account.
+        for card in cards or []:
+            self.add_card(card)
+
+    @classmethod
+    def with_sample_accounts(cls):
+        accounts = [
+            SavingsAccount("1001", "Maria Santos", "15000"),
+            CheckingAccount("2001", "Juan Dela Cruz", "25000"),
+        ]
+        cards = [
+            Card.create(number, account_number, pin)
+            for number, account_number, pin in cls.SAMPLE_CARDS
+        ]
+        return cls(accounts, cards)
+
+    def add_account(self, account):
+        if account.account_number in self._accounts:
+            raise ATMError("Account number already exists.")
+        self._accounts[account.account_number] = account
+
+    def get_account(self, account_number):
+        # str(): form input and saved data may give a number as text or int.
+        account = self._accounts.get(str(account_number))
+        if account is None:
+            raise ATMError("Account not found.")
+        return account
+
+    def list_accounts(self):
+        return list(self._accounts.values())
+
+    def add_card(self, card):
+        if card.card_number in self._cards:
+            raise ATMError("Card number already exists.")
+        self.get_account(card.account_number)  # raises if the account is missing
+        self._cards[card.card_number] = card
+
+    def get_card(self, card_number):
+        card = self._cards.get(str(card_number))
+        if card is None:
+            raise ATMError("Card not found.")
+        return card
+
+    def list_cards(self):
+        return list(self._cards.values())
+
+    def make_receipt(self, account_number, transaction):
+        """Build the receipt for a transaction of this account."""
+        return Receipt(transaction, self.get_account(account_number))
+
+    def recent_receipts(self, account_number, count=4):
+        """Receipts of the newest transactions, newest first (mini statement)."""
+        account = self.get_account(account_number)
+        newest_first = list(reversed(account.transactions))
+        return [Receipt(t, account) for t in newest_first[:count]]
+
+    def verify_pin(self, card_number, pin):
+        """Check the PIN. Return the account of the card if it is right."""
+        card = self.get_card(card_number)
+        card.verify_pin(pin)
+        return self.get_account(card.account_number)
+
+    def change_pin(self, card_number, current_pin, new_pin, confirm_pin):
+        self.get_card(card_number).change_pin(current_pin, new_pin, confirm_pin)
+
+    def get_balance(self, account_number):
+        return self.get_account(account_number).balance
+
+    def deposit(self, account_number, amount):
+        return self.get_account(account_number).deposit(amount)
+
+    def withdraw(self, account_number, amount):
+        # The service does not know the account type. Each account applies its own rule.
+        return self.get_account(account_number).withdraw(amount)
+
+    def get_history(self, account_number):
+        return self.get_account(account_number).transactions
+
+    def to_dict(self):
+        """Convert everything to a plain dict for the Django session."""
+        return {
+            "accounts": [a.to_dict() for a in self._accounts.values()],
+            "cards": [c.to_dict() for c in self._cards.values()],
+        }
+    @classmethod
+    def from_dict(cls, data):
+        """Rebuild the service from a dict made by to_dict()."""
+        accounts = []
+        for account_data in data["accounts"]:
+            account_class = cls.ACCOUNT_CLASSES.get(account_data["account_type"])
+            if account_class is None:
+                raise ATMError("Unknown account type in saved data.")
+            accounts.append(account_class.from_dict(account_data))
+        # Old saved data has no "cards" key. KeyError makes the session reset safely.
+        cards = [Card.from_dict(card_data) for card_data in data["cards"]]
+        return cls(accounts, cards)
