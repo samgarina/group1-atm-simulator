@@ -10,6 +10,7 @@ from .exceptions import (
 )
 from .atm_classes import (
     Account,
+    CheckingAccount,
     SavingsAccount,
     Transaction,
     _to_money,
@@ -36,6 +37,12 @@ class MoneyTests(unittest.TestCase):
     def test_huge_value_rejected_cleanly(self):
         with self.assertRaises(InvalidAmountError):
             _to_money("1" * 40)
+
+    def test_ten_small_deposits_no_drift(self):
+        acc = CheckingAccount("1", "A", "0")
+        for _ in range(10):
+            acc.deposit("100")
+        self.assertEqual(acc.balance, D("1000"))
 
 
 class AccountBasicsTests(unittest.TestCase):
@@ -132,6 +139,151 @@ class SavingsRuleTests(unittest.TestCase):
         self.assertEqual(self.acc.available_balance, D("500.00"))
         self.acc.withdraw("500")
         self.assertEqual(self.acc.available_balance, D("0.00"))
+
+
+class CheckingRuleTests(unittest.TestCase):
+    """Goal 2: checking has PHP 10,000 per-withdrawal limit."""
+    def setUp(self):
+        self.acc = CheckingAccount("C1", "Juan", "25000")
+
+    def test_exact_limit_ok(self):
+        self.acc.withdraw("20000")
+        self.assertEqual(self.acc.balance, D("5000.00"))
+
+    def test_above_limit_rejected(self):
+        with self.assertRaises(WithdrawalLimitError):
+            self.acc.withdraw("20100")
+        self.assertEqual(self.acc.balance, D("25000.00"))
+        self.assertEqual(self.acc.transactions, [])
+
+    def test_can_go_to_zero(self):
+        self.acc.withdraw("10000")
+        self.acc.withdraw("10000")
+        self.acc.withdraw("5000")
+        self.assertEqual(self.acc.balance, D("0.00"))
+
+    def test_overdraft_under_limit(self):
+        poor = CheckingAccount("C2", "Lia", "100")
+        with self.assertRaises(InsufficientFundsError):
+            poor.withdraw("200")
+        self.assertEqual(poor.balance, D("100.00"))
+
+    def test_limit_error_is_atm_error(self):
+        with self.assertRaises(ATMError):
+            self.acc.withdraw("20100")
+
+    def test_available_balance_equals_balance(self):
+        # Checking has no minimum balance.
+        self.assertEqual(self.acc.available_balance, D("25000.00"))
+
+
+class CommonWithdrawalRuleTests(unittest.TestCase):
+    """Rules from Account.check_withdrawal(). Every account type has them."""
+    def test_below_minimum_withdrawal(self):
+        for acc in (SavingsAccount("S", "A", "5000"), CheckingAccount("C", "B", "5000")):
+            with self.subTest(acc=acc.account_type):
+                with self.assertRaises(MinimumWithdrawalError):
+                    acc.withdraw("50")
+                self.assertEqual(acc.balance, D("5000.00"))
+
+    def test_minimum_withdrawal_boundary(self):
+        for acc in (SavingsAccount("S", "A", "5000"), CheckingAccount("C", "B", "5000")):
+            with self.subTest(acc=acc.account_type):
+                acc.withdraw("100")
+                self.assertEqual(acc.balance, D("4900.00"))
+
+    def test_not_multiple_of_bill_step(self):
+        for amount in ("150", "100.50", "101"):
+            for acc in (SavingsAccount("S", "A", "5000"), CheckingAccount("C", "B", "5000")):
+                with self.subTest(acc=acc.account_type, amount=amount):
+                    with self.assertRaises(InvalidAmountError):
+                        acc.withdraw(amount)
+                    self.assertEqual(acc.balance, D("5000.00"))
+                    self.assertEqual(acc.transactions, [])
+
+    def test_check_withdrawal_changes_nothing(self):
+        acc = CheckingAccount("C", "B", "5000")
+        self.assertEqual(acc.check_withdrawal("1000"), D("1000.00"))
+        self.assertEqual(acc.balance, D("5000.00"))
+        self.assertEqual(acc.transactions, [])
+        with self.assertRaises(WithdrawalLimitError):
+            CheckingAccount("C2", "B", "50000").check_withdrawal("20100")
+
+
+class DepositRuleTests(unittest.TestCase):
+    """Deposits: at least PHP 100, in multiples of PHP 100, no coins."""
+    def accounts(self):
+        return (SavingsAccount("S", "A", "5000"), CheckingAccount("C", "B", "5000"))
+
+    def test_below_minimum_deposit(self):
+        for acc in self.accounts():
+            with self.subTest(acc=acc.account_type):
+                with self.assertRaises(MinimumDepositError) as ctx:
+                    acc.deposit("50")
+                self.assertEqual(ctx.exception.message, "Minimum deposit is PHP 100.00.")
+                self.assertEqual(acc.balance, D("5000.00"))
+                self.assertEqual(acc.transactions, [])
+
+    def test_minimum_deposit_boundary(self):
+        for acc in self.accounts():
+            with self.subTest(acc=acc.account_type):
+                acc.deposit("100")
+                self.assertEqual(acc.balance, D("5100.00"))
+
+    def test_deposit_must_be_multiple_of_bill_step(self):
+        for amount in ("150", "250.50", "100.50", "101", "20.25"):
+            for acc in self.accounts():
+                with self.subTest(acc=acc.account_type, amount=amount):
+                    with self.assertRaises((InvalidAmountError, MinimumDepositError)):
+                        acc.deposit(amount)
+                    self.assertEqual(acc.balance, D("5000.00"))
+                    self.assertEqual(acc.transactions, [])
+
+    def test_multiple_of_bill_step_message(self):
+        acc = CheckingAccount("C", "B", "0")
+        with self.assertRaises(InvalidAmountError) as ctx:
+            acc.deposit("250")
+        self.assertEqual(ctx.exception.message, "Amount must be in multiples of PHP 100.")
+
+    def test_large_deposit_in_whole_bills_is_allowed(self):
+        acc = CheckingAccount("C", "B", "0")
+        acc.deposit("50000")
+        self.assertEqual(acc.balance, D("50000.00"))
+
+    def test_check_deposit_changes_nothing(self):
+        acc = CheckingAccount("C", "B", "5000")
+        self.assertEqual(acc.check_deposit("300"), D("300.00"))
+        self.assertEqual(acc.balance, D("5000.00"))
+        self.assertEqual(acc.transactions, [])
+        with self.assertRaises(MinimumDepositError):
+            acc.check_deposit("99")
+
+
+class PolymorphismTests(unittest.TestCase):
+    """Goal 9: same call, different result."""
+    def test_same_call_different_result(self):
+        accounts = [SavingsAccount("S", "A", "20000"),
+                    CheckingAccount("C", "B", "20000")]
+        results = []
+        for acc in accounts:           # one common interface
+            try:
+                acc.withdraw("10000")
+                results.append("ok")
+            except ATMError as e:
+                results.append(type(e).__name__)
+        self.assertEqual(results, ["WithdrawalLimitError", "ok"])
+
+    def test_savings_blocks_what_checking_allows(self):
+        s = SavingsAccount("S", "A", "600")
+        c = CheckingAccount("C", "B", "600")
+        with self.assertRaises(InsufficientFundsError):
+            s.withdraw("200")
+        c.withdraw("200")
+        self.assertEqual(c.balance, D("400.00"))
+
+    def test_is_a_relationship(self):
+        self.assertIsInstance(SavingsAccount("S", "A", "500"), Account)
+        self.assertIsInstance(CheckingAccount("C", "B"), Account)
 
 
 if __name__ == "__main__":
