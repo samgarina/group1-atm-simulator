@@ -1,0 +1,75 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PELEC Bank ATM</title>
+  <link rel="stylesheet" href="{% static 'atm_app/css/style.css' %}?v=2">
+</head>
+<body>
+  <main class="atm" id="atm">
+    <header class="atm-header">
+      <div class="brand">
+        <span class="power-led" aria-hidden="true"></span>
+        <h1>ATM SIMULATOR</h1>
+      </div>
+      <p class="brand-note">Automated Teller Machine</p>
+    </header>
+
+    {# Empty forms. Side buttons and keys point to them with the form="..." attribute. #}
+    <form id="choose-form" method="post" action="{% url 'atm_app:choose' %}">{% csrf_token %}</form>
+    <form id="cancel-form" method="post" action="{% url 'atm_app:cancel' %}">{% csrf_token %}</form>
+
+    <section class="machine-top">
+      <div class="side-buttons side-left">
+        <button type="submit" form="choose-form" name="slot">
+          <span class="visually-hidden"></span>
+        </button>
+      </div>
+
+      <div class="monitor" id="monitor" data-screen="placeholder_screen" data-input="pin">
+        <h2 class="monitor-title">ATM Screen Title</h2>
+
+        <div class="monitor-main">
+          <p class="monitor-message">Please insert your card or enter your PIN to begin transaction.</p>
+
+          <dl class="monitor-rows">
+            <dt>Account Status</dt>
+            <dd>Active</dd>
+            <dt>Available Balance</dt>
+            <dd>PHP 10,000.00</dd>
+          </dl>
+
+          {% if screen.input_mode == "pin" %}
+            <form id="entry-form" class="entry-form" method="post" action="#">
+            <label for="pin">PIN</label>
+            <input type="password" id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">
+            <button type="submit" class="entry-submit">Enter</button>
+            </form>
+            {% elif screen.input_mode == "amount" %}
+            <form id="entry-form" class="entry-form" method="post" action="#">
+            <label for="amount">Amount (PHP)</label>
+            <input type="text" id="amount" name="amount" inputmode="decimal" autocomplete="off">
+            <button type="submit" class="entry-submit">Enter</button>
+            </form>
+            {% elif screen.input_mode == "change_pin" %}
+            <form id="entry-form" class="entry-form entry-form-stack" method="post" action="#">
+            <label for="current_pin">{{ screen.prompts.0 }}</label>
+            <input type="password" id="current_pin" name="current_pin" inputmode="numeric" maxlength="6" autocomplete="off">
+            <label for="new_pin">{{ screen.prompts.1 }}</label>
+            <input type="password" id="new_pin" name="new_pin" inputmode="numeric" maxlength="6" autocomplete="off">
+            <label for="confirm_pin">{{ screen.prompts.2 }}</label>
+            <input type="password" id="confirm_pin" name="confirm_pin" inputmode="numeric" maxlength="6" autocomplete="off">
+            <button type="submit" class="entry-submit">Enter</button>
+            </form>
+            {% endif %}
+        </div>
+      </div>
+    </section>
+  </main>
+    
+  <script src="{% static 'atm_app/js/script.js' %}"></script>
+    
+</body>
+</html>
