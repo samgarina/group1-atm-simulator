@@ -12,6 +12,7 @@ from .exceptions import (
     WithdrawalLimitError,
 )
 
+# added by senilong
 
 # added by senilong
 def _to_money(value):
@@ -265,6 +266,7 @@ class CheckingAccount(Account):
             )
         return amount
 
+    pass
 
 class Receipt:
     pass
@@ -273,11 +275,13 @@ class Receipt:
 class Card:
     pass
 
-
+        
 class ATMService:
     """The ATM machine. Holds all accounts and runs operations on them.
+
     Django views talk to this class. This class talks to the accounts.
     """
+
     # Maps the saved account_type text back to the right class.
     ACCOUNT_CLASSES = {
         SavingsAccount.account_type: SavingsAccount,
@@ -380,7 +384,7 @@ class ATMService:
             "accounts": [a.to_dict() for a in self._accounts.values()],
             "cards": [c.to_dict() for c in self._cards.values()],
         }
-
+      
     @classmethod
     def from_dict(cls, data):
         """Rebuild the service from a dict made by to_dict()."""
