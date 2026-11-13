@@ -14,6 +14,7 @@ from .exceptions import (
 
 # added by senilong
 
+# added by senilong
 def _to_money(value):
     """Turn a value into a Decimal with exactly 2 decimal places.
     Raises InvalidAmountError if the value is not a valid money number.
@@ -215,28 +216,6 @@ class Account:
         self._transactions.append(transaction)
         return transaction
 
-    def to_dict(self):
-        """Convert to a plain dict for the Django session."""
-        return {
-            "account_type": self.account_type,
-            "account_number": self._account_number,
-            "holder_name": self._holder_name,
-            "balance": str(self._balance),
-            "transactions": [
-                t.to_dict() for t in self._transactions[-self.MAX_SAVED_TRANSACTIONS:]
-            ],
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Rebuild an account from a dict made by to_dict()."""
-        return cls(
-            account_number=data["account_number"],
-            holder_name=data["holder_name"],
-            balance=data["balance"],
-            transactions=[Transaction.from_dict(t) for t in data["transactions"]],
-        )
-
     def __str__(self):
         return f"{self.account_type} {self._account_number} ({self._holder_name}): PHP {self._balance}"
 
@@ -273,23 +252,28 @@ class SavingsAccount(Account):
 
 
 class CheckingAccount(Account):
+    """A checking account. It has a higher withdrawal limit than savings."""
+    account_type = "Checking Account"
+    MAX_WITHDRAWAL = Decimal("20000.00")
+
+    def check_withdrawal(self, amount):
+        # Common rules first (amount, minimum withdrawal, bills, balance).
+        amount = super().check_withdrawal(amount)
+        # Checking rule: one withdrawal cannot be above the limit.
+        if amount > self.MAX_WITHDRAWAL:
+            raise WithdrawalLimitError(
+                f"Checking accounts allow a maximum of PHP {self.MAX_WITHDRAWAL} per withdrawal."
+            )
+        return amount
+
     pass
 
 class Receipt:
     pass
 
+
 class Card:
     pass
-
-
-
-
-
-
-
-
-
-
 
         
 class ATMService:
@@ -400,6 +384,7 @@ class ATMService:
             "accounts": [a.to_dict() for a in self._accounts.values()],
             "cards": [c.to_dict() for c in self._cards.values()],
         }
+      
     @classmethod
     def from_dict(cls, data):
         """Rebuild the service from a dict made by to_dict()."""
