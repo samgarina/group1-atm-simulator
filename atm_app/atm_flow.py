@@ -252,6 +252,49 @@ class ATMFlow:
         }
         return Screen("menu", "ATM SERVICES", self._state["message"], options)
 
+    def _screen_balance(self):
+        account = self._account()
+        rows = [
+            ("Current Balance", format_money(account.balance)),
+            ("Available Balance", format_money(account.available_balance)),
+            ("Maximum Withdrawal", self._limit_text(account)),
+        ]
+        options = {
+            "L4": Option("Yes", "withdraw_start"),
+            "R4": Option("No", "menu"),
+        }
+        return Screen("balance", "BALANCE INQUIRY", self._state["message"],
+                      options, rows=rows)
+
+    def _screen_withdraw_amount(self):
+        account = self._account()
+        # No balance here: the balance is shown by Balance Inquiry and on the receipt.
+        rows = [
+            ("Maximum Withdrawal", self._limit_text(account)),
+            ("Minimum Withdrawal", format_money(account.MIN_WITHDRAWAL)),
+            ("In multiples of", f"PHP {account.BILL_STEP}"),
+        ]
+        return Screen("withdraw_amount", "CASH WITHDRAWAL", self._state["message"],
+                      {"R4": Option("Back", "menu")}, input_mode="amount", rows=rows)
+
+    def _screen_deposit_amount(self):
+        account = self._account()
+        rows = [
+            ("Minimum Deposit", format_money(account.MIN_DEPOSIT)),
+            ("In multiples of", f"PHP {account.BILL_STEP}"),
+        ]
+        return Screen("deposit_amount", "CASH DEPOSIT", self._state["message"],
+                      {"R4": Option("Back", "additional")}, input_mode="amount", rows=rows)
+
+
+    def _screen_confirm(self):
+        options = {
+            "L4": Option("Yes", "confirm_yes"),
+            "R4": Option("No", "confirm_no"),
+        }
+        return Screen("confirm", "CONFIRM", self._state["message"], options)
+
+
 
 
     
@@ -260,6 +303,56 @@ class ATMFlow:
         """The card (and the receipt and cash) wait in the machine. No buttons."""
         title = "TRANSACTION COMPLETE" if self._state["receipt_ready"] else "THANK YOU"
         return Screen("collect", title, self._state["message"])
+
+    def _screen_additional(self):
+        options = {
+            "L1": Option("Cash Deposit", "deposit_start"),
+            "L2": Option("Bank Statement", "mini_statement"),
+            "L3": Option("Account Information", "account_info"),
+            "R4": Option("Back", "menu"),
+        }
+        return Screen("additional", "ADDITIONAL SERVICES", self._state["message"], options)
+
+    def _screen_mini_statement(self):
+        receipts = self._service.recent_receipts(self._account().account_number)
+        options = {}
+        for i, receipt in enumerate(receipts):
+            options[f"L{i + 1}"] = Option(
+                f"{receipt.transaction_type} {receipt.amount:,.2f}",
+                f"view_receipt:{i}",
+                sub=f"{receipt.timestamp:%d %b %Y %I:%M %p}",
+            )
+        options["R4"] = Option("Back", "additional")
+        message = (
+            "Select a transaction to view its receipt." if receipts
+            else "No transactions yet."
+        )
+        return Screen("mini_statement", "MINI STATEMENT", message, options)
+
+    def _screen_receipt_view(self):
+        account = self._account()
+        receipt = self._service.recent_receipts(account.account_number)[self._state["view_index"]]
+        return Screen("receipt_view", "RECEIPT", self._state["message"],
+                      {"R4": Option("Back", "mini_statement")}, rows=receipt.rows())
+
+    def _screen_account_info(self):
+        account = self._account()
+        rows = [
+            ("Account Holder", account.holder_name),
+            ("Account Type", account.account_type),
+            ("Account No.", account.masked_number),
+            ("Current Balance", format_money(account.balance)),
+            ("Available Balance", format_money(account.available_balance)),
+            ("Minimum Balance", format_money(account.MINIMUM_BALANCE)),
+            ("Minimum Withdrawal", format_money(account.MIN_WITHDRAWAL)),
+            ("Maximum Withdrawal", self._limit_text(account)),
+            ("Minimum Deposit", format_money(account.MIN_DEPOSIT)),
+        ]
+        return Screen("account_info", "ACCOUNT INFORMATION", self._state["message"],
+                      {"R4": Option("Back", "additional")}, rows=rows)
+
+
+
 
 
 
@@ -305,6 +398,27 @@ class ATMFlow:
             self._state["message"] = INVALID_SELECTION_MESSAGE
             return
         self._do(option.action)
+
+
+    def submit_amount(self, value):
+        """An amount was entered. The account checks it. Nothing is changed yet."""
+        screen = self._state["screen"]
+        if screen not in ("withdraw_amount", "deposit_amount"):
+            return self._out_of_step()
+        account = self._account()
+        try:
+            if screen == "withdraw_amount":
+                kind, verb = "withdrawal", "Withdraw"
+                amount = account.check_withdrawal(value)
+            else:
+                kind, verb = "deposit", "Deposit"
+                amount = account.check_deposit(value)
+        except ATMError as error:
+            self._state["message"] = error.message
+            return
+        self._state["pending"] = {"kind": kind, "amount": str(amount)}
+        self._go("confirm", f"{verb} {format_money(amount)}?", keep_pending=True)
+
 
 
 
@@ -368,3 +482,31 @@ class ATMFlow:
             self._go("menu", "Transaction cancelled.")
         elif action == "exit":
             self.eject()
+
+    def _confirm(self):
+        """Run the pending transaction. It can run only once."""
+        pending = self._state["pending"]
+        if pending is None:
+            return self._out_of_step()
+        account = self._account()
+        # Clear first. A second request finds nothing to confirm.
+        self._state["pending"] = None
+        try:
+            if pending["kind"] == "withdrawal":
+                transaction = self._service.withdraw(account.account_number, pending["amount"])
+            else:
+                transaction = self._service.deposit(account.account_number, pending["amount"])
+        except ATMError as error:
+            back = "withdraw_amount" if pending["kind"] == "withdrawal" else "deposit_amount"
+            self._go(back, "Transaction declined.\n" + error.message)
+            return
+
+        # Withdrawal and deposit end the session: card, receipt (and cash) come out.
+        self._state["receipt_ready"] = True
+        if pending["kind"] == "withdrawal":
+            self._state["cash"] = str(transaction.amount)
+            message = "Transaction approved.\nPlease take your card, cash and receipt."
+        else:
+            message = "Transaction approved.\nPlease take your card and receipt."
+        self._go("collect", message)
+
