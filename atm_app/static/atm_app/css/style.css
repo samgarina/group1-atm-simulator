@@ -330,3 +330,9 @@ button { font-family: inherit; }
 .key-cancel { background: linear-gradient(#df5549, var(--stop)); }
 .key-clear { color: #2b2100; background: linear-gradient(#f2c24a, var(--wait)); }
 .key-enter { background: linear-gradient(#2fb27c, var(--go)); }
+
+/* ---------- hover states ---------- */
+
+.side-button:hover:not(:disabled) { background: linear-gradient(#ffffff, #c3cad1); }
+.keypad-numbers .key:hover:not(:disabled) { background: linear-gradient(#ffffff, #d6dbe0); }
+.keypad-actions .key:hover:not(:disabled) { filter: brightness(1.12); }
