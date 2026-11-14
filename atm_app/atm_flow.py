@@ -350,7 +350,11 @@ class ATMFlow:
         ]
         return Screen("account_info", "ACCOUNT INFORMATION", self._state["message"],
                       {"R4": Option("Back", "additional")}, rows=rows)
-
+    
+    def _screen_change_pin(self):
+        return Screen("change_pin", "CHANGE PIN", self._state["message"],
+                      {"R4": Option("Back", "menu")}, input_mode="change_pin",
+                      prompts=list(CHANGE_PIN_PROMPTS))
 
 
 
@@ -387,6 +391,22 @@ class ATMFlow:
         else:
             self._state["authed"] = True
             self._go("menu", MENU_MESSAGE)
+
+    
+    def submit_change_pin(self, current_pin, new_pin, confirm_pin):
+        if self._state["screen"] != "change_pin":
+            return self._out_of_step()
+        try:
+            self._service.change_pin(
+                self._state["card"], current_pin, new_pin, confirm_pin
+            )
+        except CardBlockedError as error:
+            self._end_session(error.message + "\nPlease contact your bank.")
+        except ATMError as error:
+            self._state["message"] = error.message
+        else:
+            self._go("menu", "PIN changed successfully.")
+
 
 
 

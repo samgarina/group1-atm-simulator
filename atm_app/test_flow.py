@@ -519,6 +519,42 @@ class MenuAndLayoutTests(unittest.TestCase):
         self.assertIsNone(left[3])
         self.assertIsNone(right[2])
 
+
+    # MenuAndLayoutTests: replaces test_every_screen_always_has_8_slots
+    def test_every_screen_always_has_8_slots(self):
+        """Side buttons never disappear: 4 left and 4 right on every screen."""
+        service, flow = login()
+        seen = set()
+
+        def check():
+            screen = flow.screen()
+            seen.add(screen.name)
+            self.assertEqual(len(screen.left_options()), 4, screen.name)
+            self.assertEqual(len(screen.right_options()), 4, screen.name)
+
+        withdraw(flow, "1000"); check()               # collect
+        flow.finish(); check()                        # welcome
+        flow.insert_card(SAVINGS_CARD); check()       # pin
+        flow.submit_pin(SAVINGS_PIN); check()         # menu
+        flow.choose("L1"); check()                    # balance
+        flow.choose("R4"); check()                    # menu
+        flow.choose("L2"); check()                    # withdraw amount
+        flow.submit_amount("500"); check()            # confirm
+        flow.choose("R4"); check()                    # menu (cancelled)
+        flow.choose("R1"); check()                    # change pin
+        flow.choose("R4"); check()                    # menu
+        flow.choose("R2"); check()                    # additional
+        flow.choose("L1"); check()                    # deposit amount
+        flow.choose("R4"); check()                    # additional
+        flow.choose("L3"); check()                    # account info
+        flow.choose("R4"); check()                    # additional
+        flow.choose("L2"); check()                    # mini statement
+        flow.choose("L1"); check()                    # receipt view
+        flow.choose("R4"); check()                    # mini statement
+        flow.eject(); check()                         # collect
+        self.assertEqual(len(seen), 13)
+
+
     def test_empty_slot_is_ignored(self):
         _, flow = login()
         flow.choose("L4")
@@ -889,3 +925,172 @@ class CardTests(unittest.TestCase):
             with self.subTest(change=change):
                 with self.assertRaises(ATMError):
                     Card.from_dict({**data, **change})
+
+
+
+class ChangePinFlowTests(unittest.TestCase):
+
+    def test_change_pin_screen_has_three_prompts(self):
+        _, flow = login()
+        flow.choose("R1")
+        screen = flow.screen()
+        self.assertEqual(screen.input_mode, "change_pin")
+        self.assertEqual(len(screen.prompts), 3)
+        self.assertEqual(screen.message, screen.prompts[0])
+
+    # ChangePinFlowTests: replaces test_change_pin_success
+    def test_change_pin_success(self):
+        service, flow = login()
+        flow.choose("R1")
+        flow.submit_change_pin("123456", "111222", "111222")
+        self.assertEqual(flow.screen_name, "menu")
+        self.assertEqual(flow.screen().message, "PIN changed successfully.")
+        flow.eject()
+        flow.finish()
+        flow.insert_card(SAVINGS_CARD)
+        flow.submit_pin("123456")                  # old PIN no longer works
+        self.assertEqual(flow.screen_name, "pin")
+        flow.submit_pin("111222")
+        self.assertEqual(flow.screen_name, "menu")
+
+    def test_mismatch_and_bad_format_cost_no_attempt(self):
+        service, flow = login()
+        flow.choose("R1")
+        flow.submit_change_pin("123456", "111222", "111223")
+        self.assertEqual(flow.screen_name, "change_pin")
+        self.assertEqual(flow.screen().message, "PINs do not match.")
+        flow.submit_change_pin("123456", "123", "123")
+        self.assertEqual(flow.screen().message, "PIN must be exactly 6 digits.")
+        self.assertEqual(service.get_card(SAVINGS_CARD).failed_attempts, 0)
+
+    def test_same_pin_rejected(self):
+        _, flow = login()
+        flow.choose("R1")
+        flow.submit_change_pin("123456", "123456", "123456")
+        self.assertEqual(flow.screen().message, "New PIN must be different.")
+
+    def test_wrong_current_pin_blocks_card_after_three(self):
+        service, flow = login()
+        flow.choose("R1")
+        flow.submit_change_pin("000000", "111222", "111222")
+        self.assertEqual(flow.screen().message, "Incorrect PIN. Please try again.")
+        flow.submit_change_pin("000000", "111222", "111222")
+        self.assertEqual(flow.screen().message, "Incorrect PIN. Last attempt remaining.")
+        flow.submit_change_pin("000000", "111222", "111222")
+        self.assertEqual(flow.screen_name, "welcome")
+        self.assertIn("Card blocked.", flow.screen().message)
+        self.assertTrue(service.get_card(SAVINGS_CARD).is_blocked)
+
+    def test_change_pin_out_of_step(self):
+        _, flow = login()
+        flow.submit_change_pin("123456", "111222", "111222")
+        self.assertEqual(flow.screen_name, "menu")
+        self.assertEqual(flow.screen().message, "Please follow the instructions on the screen.")
+
+    def test_change_pin_state_has_no_pins(self):
+        _, flow = login()
+        flow.choose("R1")
+        flow.submit_change_pin("123456", "111222", "111223")
+        text = json.dumps(flow.to_dict())
+        for pin in ("123456", "111222", "111223"):
+            self.assertNotIn(pin, text)
+
+
+
+class SavedStateTests(unittest.TestCase):
+
+    def test_round_trip_in_the_middle_of_a_transaction(self):
+        service, flow = login()
+        flow.choose("L2")
+        flow.submit_amount("1000")
+        data = json.loads(json.dumps(flow.to_dict()))   # must be plain JSON data
+        flow2 = ATMFlow.from_dict(service, data)
+        self.assertEqual(flow2.screen().message, "Withdraw PHP 1,000.00?")
+        flow2.choose("L4")
+        self.assertEqual(service.get_balance("1001"), D("14000.00"))
+
+    def test_bad_saved_flow_data_is_rejected(self):
+        service, flow = login()
+        flow.choose("L2")
+        flow.submit_amount("1000")
+        good = flow.to_dict()
+
+        bad_changes = [
+            {"screen": "nope"},
+            {"screen": "welcome"},                      # card still set
+            {"card": "9999"},                           # unknown card
+            {"authed": False},                          # confirm needs authed
+            {"authed": "yes"},
+            {"pending": None},                          # confirm needs pending
+            {"pending": {"kind": "steal", "amount": "5"}},
+            {"pending": {"kind": "withdrawal", "amount": "abc"}},
+            {"pending": {"kind": "withdrawal", "amount": "-5"}},
+            {"message": 5},
+            {"message": "x" * 301},
+            {"cash": "100.00"},                         # cash only on the collect screen
+            {"view_index": 0},                          # only on receipt_view
+            {"receipt_ready": "no"},
+            {"receipt_ready": True}                     # slip only on the collect screen to bad_changes
+        ]
+        for change in bad_changes:
+            with self.subTest(change=change):
+                with self.assertRaises(ATMError):
+                    ATMFlow.from_dict(service, {**good, **change})
+
+        with self.assertRaises(ATMError):
+            ATMFlow.from_dict(service, {})
+        with self.assertRaises(ATMError):
+            ATMFlow.from_dict(service, "garbage")
+
+    def test_blocked_card_cannot_be_inside_a_session(self):
+        service, flow = login()
+        for _ in range(3):
+            try:
+                service.get_card(SAVINGS_CARD).verify_pin("000000")
+            except ATMError:
+                pass
+        with self.assertRaises(ATMError):
+            ATMFlow.from_dict(service, flow.to_dict())
+
+    def test_receipt_view_index_must_exist(self):
+        service, flow = login()
+        withdraw(flow, "1000")
+        relogin(flow)
+        flow.choose("R2")
+        flow.choose("L2")
+        flow.choose("L1")
+        good = flow.to_dict()
+        self.assertEqual(good["view_index"], 0)
+        with self.assertRaises(ATMError):
+            ATMFlow.from_dict(service, {**good, "view_index": 3})
+        with self.assertRaises(ATMError):
+            ATMFlow.from_dict(service, {**good, "view_index": True})
+
+    def test_collect_state_round_trip_and_rules(self):
+        service, flow = login()
+        withdraw(flow, "1000")
+        good = json.loads(json.dumps(flow.to_dict()))
+        self.assertEqual(good["screen"], "collect")
+        again = ATMFlow.from_dict(service, good)
+        self.assertEqual(again.cash_amount(), D("1000.00"))
+        self.assertEqual(again.receipt_paper().amount, D("1000.00"))
+        again.finish()
+        self.assertEqual(again.screen_name, "welcome")
+
+        bad_changes = [
+            {"receipt_ready": False},                   # cash needs a receipt
+            {"authed": False},                          # a slip needs a finished transaction
+            {"cash": "0.00"},
+            {"cash": "abc"},
+            {"card": ""},                               # the card must be in the slot
+        ]
+        for change in bad_changes:
+            with self.subTest(change=change):
+                with self.assertRaises(ATMError):
+                    ATMFlow.from_dict(service, {**good, **change})
+
+    def test_card_only_collect_state_is_valid(self):
+        service, flow = login()
+        flow.eject()
+        ATMFlow.from_dict(service, flow.to_dict())      # no exception
+
