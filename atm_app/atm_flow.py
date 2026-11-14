@@ -252,6 +252,39 @@ class ATMFlow:
         }
         return Screen("menu", "ATM SERVICES", self._state["message"], options)
 
+    def _screen_balance(self):
+        account = self._account()
+        rows = [
+            ("Current Balance", format_money(account.balance)),
+            ("Available Balance", format_money(account.available_balance)),
+            ("Maximum Withdrawal", self._limit_text(account)),
+        ]
+        options = {
+            "L4": Option("Yes", "withdraw_start"),
+            "R4": Option("No", "menu"),
+        }
+        return Screen("balance", "BALANCE INQUIRY", self._state["message"],
+                      options, rows=rows)
+
+    def _screen_withdraw_amount(self):
+        account = self._account()
+        # No balance here: the balance is shown by Balance Inquiry and on the receipt.
+        rows = [
+            ("Maximum Withdrawal", self._limit_text(account)),
+            ("Minimum Withdrawal", format_money(account.MIN_WITHDRAWAL)),
+            ("In multiples of", f"PHP {account.BILL_STEP}"),
+        ]
+        return Screen("withdraw_amount", "CASH WITHDRAWAL", self._state["message"],
+                      {"R4": Option("Back", "menu")}, input_mode="amount", rows=rows)
+
+    def _screen_confirm(self):
+        options = {
+            "L4": Option("Yes", "confirm_yes"),
+            "R4": Option("No", "confirm_no"),
+        }
+        return Screen("confirm", "CONFIRM", self._state["message"], options)
+
+
 
 
     
@@ -305,6 +338,27 @@ class ATMFlow:
             self._state["message"] = INVALID_SELECTION_MESSAGE
             return
         self._do(option.action)
+
+
+    def submit_amount(self, value):
+        """An amount was entered. The account checks it. Nothing is changed yet."""
+        screen = self._state["screen"]
+        if screen not in ("withdraw_amount", "deposit_amount"):
+            return self._out_of_step()
+        account = self._account()
+        try:
+            if screen == "withdraw_amount":
+                kind, verb = "withdrawal", "Withdraw"
+                amount = account.check_withdrawal(value)
+            else:
+                kind, verb = "deposit", "Deposit"
+                amount = account.check_deposit(value)
+        except ATMError as error:
+            self._state["message"] = error.message
+            return
+        self._state["pending"] = {"kind": kind, "amount": str(amount)}
+        self._go("confirm", f"{verb} {format_money(amount)}?", keep_pending=True)
+
 
 
 
@@ -368,3 +422,31 @@ class ATMFlow:
             self._go("menu", "Transaction cancelled.")
         elif action == "exit":
             self.eject()
+
+    def _confirm(self):
+        """Run the pending transaction. It can run only once."""
+        pending = self._state["pending"]
+        if pending is None:
+            return self._out_of_step()
+        account = self._account()
+        # Clear first. A second request finds nothing to confirm.
+        self._state["pending"] = None
+        try:
+            if pending["kind"] == "withdrawal":
+                transaction = self._service.withdraw(account.account_number, pending["amount"])
+            else:
+                transaction = self._service.deposit(account.account_number, pending["amount"])
+        except ATMError as error:
+            back = "withdraw_amount" if pending["kind"] == "withdrawal" else "deposit_amount"
+            self._go(back, "Transaction declined.\n" + error.message)
+            return
+
+        # Withdrawal and deposit end the session: card, receipt (and cash) come out.
+        self._state["receipt_ready"] = True
+        if pending["kind"] == "withdrawal":
+            self._state["cash"] = str(transaction.amount)
+            message = "Transaction approved.\nPlease take your card, cash and receipt."
+        else:
+            message = "Transaction approved.\nPlease take your card and receipt."
+        self._go("collect", message)
+
