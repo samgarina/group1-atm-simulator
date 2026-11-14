@@ -5,8 +5,11 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from .exceptions import (
     ATMError,
+    CardBlockedError,
+    IncorrectPinError,
     InsufficientFundsError,
     InvalidAmountError,
+    InvalidPinError,
     MinimumDepositError,
     MinimumWithdrawalError,
     WithdrawalLimitError,
@@ -303,7 +306,167 @@ class Receipt:
 
 
 class Card:
-    pass
+    """A bank card. It checks the PIN and counts wrong tries.
+
+    The PIN is never stored. Only a salted hash is stored ("salt$hash").
+    """
+
+    PIN_LENGTH = 6
+    MAX_ATTEMPTS = 3
+    PIN_ITERATIONS = 100_000
+
+    def __init__(self, card_number, account_number, pin_hash,
+                 failed_attempts=0, blocked=False):
+        card_number = str(card_number).strip()
+        if not card_number:
+            raise ATMError("Card number is required.")
+        self._check_saved_hash(pin_hash)
+        if (
+            isinstance(failed_attempts, bool)
+            or not isinstance(failed_attempts, int)
+            or not 0 <= failed_attempts <= self.MAX_ATTEMPTS
+        ):
+            raise ATMError("Invalid saved card data.")
+        if not isinstance(blocked, bool):
+            raise ATMError("Invalid saved card data.")
+
+        self._card_number = card_number
+        self._account_number = str(account_number)
+        self._pin_hash = pin_hash
+        self._failed_attempts = failed_attempts
+        self._blocked = blocked
+
+    @classmethod
+    def create(cls, card_number, account_number, pin):
+        """Make a new card. The PIN is checked, hashed, then forgotten."""
+        cls._check_pin_format(pin)
+        return cls(card_number, account_number, cls._hash_pin(pin))
+
+    # --- helpers -------------------------------------------------------
+
+    @classmethod
+    def _check_pin_format(cls, pin):
+        # isascii(): isdigit() alone also accepts digits from other scripts.
+        if not (
+            isinstance(pin, str)
+            and pin.isascii()
+            and pin.isdigit()
+            and len(pin) == cls.PIN_LENGTH
+        ):
+            raise InvalidPinError(f"PIN must be exactly {cls.PIN_LENGTH} digits.")
+
+    @staticmethod
+    def _check_saved_hash(pin_hash):
+        """Saved hash must look like 'salt$hash' with hex text on both sides."""
+        try:
+            salt, digest = pin_hash.split("$")
+            bytes.fromhex(salt)
+            bytes.fromhex(digest)
+        except (AttributeError, ValueError):
+            raise ATMError("Invalid saved card data.")
+
+    @classmethod
+    def _hash_pin(cls, pin, salt=None):
+        """Return 'salt$hash'. A new random salt is made if none is given."""
+        salt = salt or os.urandom(8).hex()
+        digest = hashlib.pbkdf2_hmac(
+            "sha256", pin.encode(), bytes.fromhex(salt), cls.PIN_ITERATIONS
+        )
+        return f"{salt}${digest.hex()}"
+
+    def _pin_matches(self, pin):
+        salt, stored = self._pin_hash.split("$")
+        candidate = self._hash_pin(pin, salt).split("$")[1]
+        # compare_digest takes the same time for any input. It avoids timing leaks.
+        return hmac.compare_digest(candidate, stored)
+
+    # --- read-only properties -----------------------------------------
+
+    @property
+    def card_number(self):
+        return self._card_number
+
+    @property
+    def account_number(self):
+        return self._account_number
+
+    @property
+    def failed_attempts(self):
+        return self._failed_attempts
+
+    @property
+    def attempts_left(self):
+        return self.MAX_ATTEMPTS - self._failed_attempts
+
+    @property
+    def is_blocked(self):
+        return self._blocked
+
+    # --- actions -------------------------------------------------------
+
+    def verify_pin(self, pin):
+        """Return normally if the PIN is right. Raise an ATMError if not.
+
+        A wrong PIN counts as a failed attempt. The last allowed wrong
+        attempt blocks the card. A PIN with the wrong format is not counted.
+        """
+        if self._blocked:
+            raise CardBlockedError()
+        self._check_pin_format(pin)
+
+        if self._pin_matches(pin):
+            self._failed_attempts = 0
+            return
+
+        self._failed_attempts += 1
+        if self._failed_attempts >= self.MAX_ATTEMPTS:
+            self._blocked = True
+            raise CardBlockedError()
+
+        left = self.attempts_left
+        if left == 1:
+            message = "Incorrect PIN. Last attempt remaining."
+        else:
+            message = "Incorrect PIN. Please try again."
+        raise IncorrectPinError(message, attempts_left=left)
+
+    def change_pin(self, current_pin, new_pin, confirm_pin):
+        """Replace the PIN. Nothing changes if any check fails."""
+        # Format and match checks first, so a typing mistake costs no attempt.
+        self._check_pin_format(new_pin)
+        self._check_pin_format(confirm_pin)
+        if new_pin != confirm_pin:
+            raise InvalidPinError("PINs do not match.")
+
+        self.verify_pin(current_pin)  # a wrong current PIN counts as an attempt
+
+        if new_pin == current_pin:
+            raise InvalidPinError("New PIN must be different.")
+        self._pin_hash = self._hash_pin(new_pin)
+
+    # --- session -------------------------------------------------------
+
+    def to_dict(self):
+        return {
+            "card_number": self._card_number,
+            "account_number": self._account_number,
+            "pin_hash": self._pin_hash,
+            "failed_attempts": self._failed_attempts,
+            "blocked": self._blocked,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            card_number=data["card_number"],
+            account_number=data["account_number"],
+            pin_hash=data["pin_hash"],
+            failed_attempts=data["failed_attempts"],
+            blocked=data["blocked"],
+        )
+
+    def __str__(self):
+        return f"Card {self._card_number} for account {self._account_number}"
 
 
 class ATMService:
