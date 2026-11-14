@@ -35,6 +35,7 @@ class ATMPlaceholderViewTests(TestCase):
         response = self.client.get(reverse("atm_app:withdraw"))
         self.assertEqual(response.status_code, 200)
 
+
     def test_reset_view_returns_200(self):
         response = self.client.get(reverse("atm_app:reset"))
         self.assertEqual(response.status_code, 200)
