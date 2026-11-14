@@ -277,6 +277,16 @@ class ATMFlow:
         return Screen("withdraw_amount", "CASH WITHDRAWAL", self._state["message"],
                       {"R4": Option("Back", "menu")}, input_mode="amount", rows=rows)
 
+    def _screen_deposit_amount(self):
+        account = self._account()
+        rows = [
+            ("Minimum Deposit", format_money(account.MIN_DEPOSIT)),
+            ("In multiples of", f"PHP {account.BILL_STEP}"),
+        ]
+        return Screen("deposit_amount", "CASH DEPOSIT", self._state["message"],
+                      {"R4": Option("Back", "additional")}, input_mode="amount", rows=rows)
+
+
     def _screen_confirm(self):
         options = {
             "L4": Option("Yes", "confirm_yes"),
@@ -293,6 +303,56 @@ class ATMFlow:
         """The card (and the receipt and cash) wait in the machine. No buttons."""
         title = "TRANSACTION COMPLETE" if self._state["receipt_ready"] else "THANK YOU"
         return Screen("collect", title, self._state["message"])
+
+    def _screen_additional(self):
+        options = {
+            "L1": Option("Cash Deposit", "deposit_start"),
+            "L2": Option("Bank Statement", "mini_statement"),
+            "L3": Option("Account Information", "account_info"),
+            "R4": Option("Back", "menu"),
+        }
+        return Screen("additional", "ADDITIONAL SERVICES", self._state["message"], options)
+
+    def _screen_mini_statement(self):
+        receipts = self._service.recent_receipts(self._account().account_number)
+        options = {}
+        for i, receipt in enumerate(receipts):
+            options[f"L{i + 1}"] = Option(
+                f"{receipt.transaction_type} {receipt.amount:,.2f}",
+                f"view_receipt:{i}",
+                sub=f"{receipt.timestamp:%d %b %Y %I:%M %p}",
+            )
+        options["R4"] = Option("Back", "additional")
+        message = (
+            "Select a transaction to view its receipt." if receipts
+            else "No transactions yet."
+        )
+        return Screen("mini_statement", "MINI STATEMENT", message, options)
+
+    def _screen_receipt_view(self):
+        account = self._account()
+        receipt = self._service.recent_receipts(account.account_number)[self._state["view_index"]]
+        return Screen("receipt_view", "RECEIPT", self._state["message"],
+                      {"R4": Option("Back", "mini_statement")}, rows=receipt.rows())
+
+    def _screen_account_info(self):
+        account = self._account()
+        rows = [
+            ("Account Holder", account.holder_name),
+            ("Account Type", account.account_type),
+            ("Account No.", account.masked_number),
+            ("Current Balance", format_money(account.balance)),
+            ("Available Balance", format_money(account.available_balance)),
+            ("Minimum Balance", format_money(account.MINIMUM_BALANCE)),
+            ("Minimum Withdrawal", format_money(account.MIN_WITHDRAWAL)),
+            ("Maximum Withdrawal", self._limit_text(account)),
+            ("Minimum Deposit", format_money(account.MIN_DEPOSIT)),
+        ]
+        return Screen("account_info", "ACCOUNT INFORMATION", self._state["message"],
+                      {"R4": Option("Back", "additional")}, rows=rows)
+
+
+
 
 
 
