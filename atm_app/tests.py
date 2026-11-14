@@ -19,7 +19,6 @@ from .atm_classes import (
 
 D = Decimal
 
-
 class MoneyTests(unittest.TestCase):
     """Goal 6: Decimal accuracy and input cleaning."""
     def test_float_is_exact(self):
@@ -44,7 +43,6 @@ class MoneyTests(unittest.TestCase):
         for _ in range(10):
             acc.deposit("100")
         self.assertEqual(acc.balance, D("1000"))
-
 
 class AccountBasicsTests(unittest.TestCase):
     """Goals 3, 4, 5 on the parent class."""
@@ -96,7 +94,6 @@ class AccountBasicsTests(unittest.TestCase):
         with self.assertRaises(InvalidAmountError):
             Account("2", "Bo", "-1")
 
-
 class SavingsRuleTests(unittest.TestCase):
     """Goal 2: savings keeps PHP 500 minimum."""
     def setUp(self):
@@ -141,7 +138,6 @@ class SavingsRuleTests(unittest.TestCase):
         self.acc.withdraw("500")
         self.assertEqual(self.acc.available_balance, D("0.00"))
 
-
 class CheckingRuleTests(unittest.TestCase):
     """Goal 2: checking has PHP 10,000 per-withdrawal limit."""
     def setUp(self):
@@ -177,7 +173,6 @@ class CheckingRuleTests(unittest.TestCase):
         # Checking has no minimum balance.
         self.assertEqual(self.acc.available_balance, D("25000.00"))
 
-
 class CommonWithdrawalRuleTests(unittest.TestCase):
     """Rules from Account.check_withdrawal(). Every account type has them."""
     def test_below_minimum_withdrawal(self):
@@ -209,7 +204,6 @@ class CommonWithdrawalRuleTests(unittest.TestCase):
         self.assertEqual(acc.transactions, [])
         with self.assertRaises(WithdrawalLimitError):
             CheckingAccount("C2", "B", "50000").check_withdrawal("20100")
-
 
 class DepositRuleTests(unittest.TestCase):
     """Deposits: at least PHP 100, in multiples of PHP 100, no coins."""
@@ -259,7 +253,6 @@ class DepositRuleTests(unittest.TestCase):
         with self.assertRaises(MinimumDepositError):
             acc.check_deposit("99")
 
-
 class PolymorphismTests(unittest.TestCase):
     """Goal 9: same call, different result."""
     def test_same_call_different_result(self):
@@ -293,7 +286,6 @@ class PolymorphismTests(unittest.TestCase):
         self.assertIsInstance(savings, SavingsAccount)
         self.assertIsInstance(checking, CheckingAccount)
 
-
 class SerializationTests(unittest.TestCase):
     """Goal 7."""
     def test_account_round_trip_keeps_type_and_history(self):
@@ -325,7 +317,6 @@ class SerializationTests(unittest.TestCase):
         with self.assertRaises(ATMError):
             ATMService.from_dict({"accounts": [{"account_type": "Gold"}]})
 
-
 class HistoryCapTests(unittest.TestCase):
     """Phase 5: saved history keeps only the newest transactions."""
     def test_saved_history_keeps_last_ten(self):
@@ -346,6 +337,59 @@ class HistoryCapTests(unittest.TestCase):
         self.assertEqual(restored.balance, D("12000.00"))
         self.assertEqual(len(restored.transactions), 10)
 
+class ATMServiceTests(unittest.TestCase):
+    """Goals 1 and 8."""
+
+    def setUp(self):
+        self.svc = ATMService.with_sample_accounts()
+
+    def test_sample_accounts(self):
+        self.assertEqual(len(self.svc.list_accounts()), 2)
+        self.assertEqual(self.svc.get_balance("1001"), D("15000.00"))
+        self.assertEqual(self.svc.get_balance("2001"), D("25000.00"))
+
+    def test_account_number_as_int_or_str(self):
+        self.assertEqual(self.svc.get_account(1001).holder_name, "Maria Santos")
+
+    def test_missing_account(self):
+        for op in (lambda: self.svc.get_account("9999"),
+                   lambda: self.svc.get_balance("9999"),
+                   lambda: self.svc.deposit("9999", "10"),
+                   lambda: self.svc.withdraw("9999", "10"),
+                   lambda: self.svc.get_history("9999"),
+                   lambda: self.svc.get_account(None)):
+            with self.assertRaises(ATMError) as ctx:
+                op()
+            self.assertEqual(ctx.exception.message, "Account not found.")
+
+    def test_duplicate_account(self):
+        with self.assertRaises(ATMError):
+            self.svc.add_account(CheckingAccount("1001", "Dup"))
+
+    def test_full_workflow(self):
+        self.svc.deposit("1001", "500")
+        self.svc.withdraw("1001", "1000")
+        self.svc.withdraw("2001", "1000")
+        self.assertEqual(self.svc.get_balance("1001"), D("14500.00"))
+        self.assertEqual(self.svc.get_balance("2001"), D("24000.00"))
+        with self.assertRaises(WithdrawalLimitError):
+            self.svc.withdraw("2001", "20100")
+        with self.assertRaises(InsufficientFundsError):
+            self.svc.withdraw("1001", "14500")
+        self.assertEqual(self.svc.get_balance("1001"), D("14500.00"))
+        self.assertEqual(self.svc.get_balance("2001"), D("24000.00"))
+        self.assertEqual([t.kind for t in self.svc.get_history("1001")],
+                         ["deposit", "withdrawal"])
+        self.assertEqual(len(self.svc.get_history("2001")), 1)
+
+    def test_accounts_independent(self):
+        self.svc.deposit("1001", "100")
+        self.assertEqual(self.svc.get_history("2001"), [])
+
+    def test_sample_accounts_are_fresh_each_time(self):
+        self.svc.deposit("1001", "100")
+        self.assertEqual(ATMService.with_sample_accounts().get_balance("1001"),
+                         D("15000.00"))
 
 if __name__ == "__main__":
     unittest.main()
