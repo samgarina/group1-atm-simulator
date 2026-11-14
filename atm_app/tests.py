@@ -285,6 +285,14 @@ class PolymorphismTests(unittest.TestCase):
         self.assertEqual(s.balance, D("600.00"))
         self.assertEqual(c.balance, D("400.00"))
 
+    def test_is_a_relationship(self):
+        savings = SavingsAccount("S", "A", "500")
+        checking = CheckingAccount("C", "B")
+        self.assertIsInstance(savings, Account)
+        self.assertIsInstance(checking, Account)
+        self.assertIsInstance(savings, SavingsAccount)
+        self.assertIsInstance(checking, CheckingAccount)
+
 
 class SerializationTests(unittest.TestCase):
     """Goal 7."""
