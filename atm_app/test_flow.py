@@ -23,6 +23,7 @@ from .atm_classes import (
     CheckingAccount,
     SavingsAccount,
     Transaction,
+    Receipt,
     _to_money,
 )
 
@@ -32,6 +33,62 @@ SAVINGS_CARD = "5000000000001001"
 CHECKING_CARD = "5000000000002001"
 SAVINGS_PIN = "123456"
 CHECKING_PIN = "654321"
+
+class ATMServiceCardAndReceiptTests(unittest.TestCase):
+
+    def test_sample_cards_point_to_the_right_accounts(self):
+        service = ATMService.with_sample_accounts()
+        self.assertEqual(len(service.list_cards()), 2)
+        self.assertEqual(service.verify_pin(SAVINGS_CARD, SAVINGS_PIN).account_number, "1001")
+        self.assertEqual(service.verify_pin(CHECKING_CARD, CHECKING_PIN).account_number, "2001")
+
+    def test_wrong_pin_is_rejected(self):
+        service = ATMService.with_sample_accounts()
+        with self.assertRaises(IncorrectPinError):
+            service.verify_pin(SAVINGS_CARD, "000000")
+
+    def test_unknown_card_is_rejected(self):
+        with self.assertRaises(ATMError):
+            ATMService.with_sample_accounts().get_card("9999")
+
+    def test_card_for_a_missing_account_is_rejected(self):
+        service = ATMService([Account("1001", "Test Holder", "1000")])
+        with self.assertRaises(ATMError):
+            service.add_card(Card.create("1111", "9999", "123456"))
+
+    def test_receipt_rows_for_a_savings_withdrawal(self):
+        service = ATMService.with_sample_accounts()
+        t = service.withdraw("1001", "1000")
+        rows = dict(service.make_receipt("1001", t).rows())
+        self.assertEqual(rows["Transaction"], "Cash Withdrawal")
+        self.assertEqual(rows["Amount"], "PHP 1,000.00")
+        self.assertEqual(rows["Account No."], "****1001")
+        self.assertEqual(rows["Current Balance"], "PHP 14,000.00")
+        self.assertEqual(rows["Available Balance"], "PHP 13,500.00")   # 500 stays in savings
+
+    def test_checking_available_balance_equals_balance(self):
+        service = ATMService.with_sample_accounts()
+        t = service.withdraw("2001", "1000")
+        rows = dict(service.make_receipt("2001", t).rows())
+        self.assertEqual(rows["Available Balance"], "PHP 24,000.00")
+
+    def test_recent_receipts_are_newest_first(self):
+        service = ATMService.with_sample_accounts()
+        service.deposit("1001", "100")
+        service.withdraw("1001", "200")
+        kinds = [r.transaction_type for r in service.recent_receipts("1001")]
+        self.assertEqual(kinds, ["Cash Withdrawal", "Cash Deposit"])
+
+    def test_round_trip_keeps_cards(self):
+        service = ATMService.with_sample_accounts()
+        copy = ATMService.from_dict(json.loads(json.dumps(service.to_dict())))
+        self.assertEqual(copy.verify_pin(SAVINGS_CARD, SAVINGS_PIN).account_number, "1001")
+
+    def test_old_saved_data_without_cards_is_rejected(self):
+        data = ATMService.with_sample_accounts().to_dict()
+        del data["cards"]
+        with self.assertRaises(KeyError):   # session_state turns this into a safe reset
+            ATMService.from_dict(data)
 
 class TransactionTests(unittest.TestCase):
 

@@ -41,7 +41,7 @@ def _to_money(value):
         # Number has too many digits for Decimal to hold.
         raise InvalidAmountError("Amount is too large.")
 
-
+# added by senilong
 def format_money(value):
     """Return money as text for the screen, for example 'PHP 5,000.00'."""
     return f"PHP {value:,.2f}"
@@ -301,8 +301,82 @@ class CheckingAccount(Account):
         return amount
 
 
+
 class Receipt:
-    pass
+    """An ATM slip for one transaction. Built from a Transaction and its account.
+
+    Nothing is saved. A receipt can be rebuilt at any time, because the
+    available balance only depends on the balance after the transaction
+    and the account's fixed minimum balance.
+    """
+
+    BANK_NAME = "PELEC Bank"
+    LOCATION = "CTU"
+    TYPE_LABELS = {
+        "withdrawal": "Cash Withdrawal",
+        "deposit": "Cash Deposit",
+    }
+
+    def __init__(self, transaction, account):
+        self._transaction = transaction
+        self._account_type = account.account_type
+        # Show only the last 4 digits, like a real slip.
+        self._masked_account = account.masked_number
+        self._available_balance = account.available_for(transaction.balance_after)
+
+    # Read-only properties.
+    @property
+    def bank_name(self):
+        return self.BANK_NAME
+
+    @property
+    def location(self):
+        return self.LOCATION
+
+    @property
+    def timestamp(self):
+        return self._transaction.timestamp
+
+    @property
+    def transaction_type(self):
+        return self.TYPE_LABELS[self._transaction.kind]
+
+    @property
+    def amount(self):
+        return self._transaction.amount
+
+    @property
+    def account_type(self):
+        return self._account_type
+
+    @property
+    def masked_account(self):
+        return self._masked_account
+
+    @property
+    def current_balance(self):
+        """The real balance in the account after this transaction."""
+        return self._transaction.balance_after
+
+    @property
+    def available_balance(self):
+        """What can be withdrawn after this transaction (balance - minimum)."""
+        return self._available_balance
+
+    def rows(self):
+        """Label and value pairs in slip order. The template prints them."""
+        return [
+            ("Date", f"{self.timestamp:%d %b %Y}"),
+            ("Time", f"{self.timestamp:%I:%M:%S %p}"),
+            ("Location", self.location),
+            ("Transaction", self.transaction_type),
+            ("Amount", format_money(self.amount)),
+            ("Account", self.account_type),
+            ("Account No.", self.masked_account),
+            ("Current Balance", format_money(self.current_balance)),
+            ("Available Balance", format_money(self.available_balance)),
+        ]
+
 
 
 class Card:
@@ -468,7 +542,7 @@ class Card:
     def __str__(self):
         return f"Card {self._card_number} for account {self._account_number}"
 
-
+# modified by senilong
 class ATMService:
     """The ATM machine. Holds all accounts and runs operations on them.
     Django views talk to this class. This class talks to the accounts.
