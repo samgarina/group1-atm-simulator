@@ -2,8 +2,15 @@
 from .atm_classes import _to_money, format_money
 from .exceptions import ATMError, CardBlockedError
 
-WELCOME_MESSAGE = "Welcome to PELEC Bank.\nPlease insert your ATM card."
 
+WELCOME_MESSAGE = "Welcome to PELEC Bank.\nPlease insert your ATM card."
+PIN_MESSAGE = "Please enter your six-digit PIN."
+MENU_MESSAGE = "Please select a service."
+AMOUNT_MESSAGE = "Please enter the amount."
+EJECT_MESSAGE = "Please take your card."
+THANK_YOU_MESSAGE = "Thank you for using PELEC Bank.\nPlease insert your card."
+OUT_OF_STEP_MESSAGE = "Please follow the instructions on the screen."
+INVALID_SELECTION_MESSAGE = "Invalid selection."
 
 
 # The three prompts of Change PIN. JavaScript shows them one by one and keeps
@@ -106,18 +113,6 @@ class ATMFlow:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
     def to_dict(self):
         state = dict(self._state)
         if state["pending"] is not None:
@@ -198,3 +193,178 @@ class ATMFlow:
             raise
         except (KeyError, TypeError, ValueError):
             raise bad
+
+
+
+
+    # ------------------------------------------------------------------
+    # small helpers
+    # ------------------------------------------------------------------
+
+    def _account(self):
+        card = self._service.get_card(self._state["card"])
+        return self._service.get_account(card.account_number)
+
+    def _go(self, screen, message, keep_pending=False):
+        """Move to another screen and set its message."""
+        if screen != "receipt_view":
+            self._state["view_index"] = None
+        if not keep_pending:
+            self._state["pending"] = None
+        self._state["screen"] = screen
+        self._state["message"] = message
+
+    def _end_session(self, message):
+        """Remove the card and go back to the welcome screen."""
+        self._state = self._fresh_state()
+        self._state["message"] = message
+
+    def _out_of_step(self):
+        """Input that does not fit the current screen is ignored."""
+        self._state["message"] = OUT_OF_STEP_MESSAGE
+
+    @staticmethod
+    def _limit_text(account):
+        limit = getattr(account, "MAX_WITHDRAWAL", None)
+        return "No limit" if limit is None else format_money(limit)
+
+
+
+
+
+
+
+
+
+    def _screen_welcome(self):
+        return Screen("welcome", "WELCOME", self._state["message"])
+
+    def _screen_pin(self):
+        return Screen("pin", "ENTER PIN", self._state["message"], input_mode="pin")
+
+    def _screen_menu(self):
+        options = {
+            "L1": Option("Balance Inquiry", "balance"),
+            "L2": Option("Cash Withdrawal", "withdraw_start"),
+            "R1": Option("Change PIN", "change_pin_start"),
+            "R2": Option("Additional Services", "additional"),
+            "R4": Option("Exit", "exit"),
+        }
+        return Screen("menu", "ATM SERVICES", self._state["message"], options)
+
+
+
+    
+    
+    def _screen_collect(self):
+        """The card (and the receipt and cash) wait in the machine. No buttons."""
+        title = "TRANSACTION COMPLETE" if self._state["receipt_ready"] else "THANK YOU"
+        return Screen("collect", title, self._state["message"])
+
+
+
+
+    # ------------------------------------------------------------------
+    # user input. The view calls these. Then it saves service and flow.
+    # ------------------------------------------------------------------
+
+    def insert_card(self, card_number):
+        if self._state["screen"] != "welcome":
+            return self._out_of_step()
+        try:
+            card = self._service.get_card(card_number)
+        except ATMError as error:
+            self._state["message"] = error.message
+            return
+        if card.is_blocked:
+            self._state["message"] = "This card is blocked.\nPlease contact your bank."
+            return
+        self._state["card"] = card.card_number
+        self._go("pin", PIN_MESSAGE)
+
+    def submit_pin(self, pin):
+        if self._state["screen"] != "pin":
+            return self._out_of_step()
+        try:
+            self._service.verify_pin(self._state["card"], pin)
+        except CardBlockedError as error:
+            self._end_session(error.message + "\nPlease contact your bank.")
+        except ATMError as error:
+            self._state["message"] = error.message
+        else:
+            self._state["authed"] = True
+            self._go("menu", MENU_MESSAGE)
+
+
+
+
+    def choose(self, slot):
+        """A side button was pressed. slot is 'L1'...'L4' or 'R1'...'R4'."""
+        option = self.screen().options.get(slot)
+        if option is None:
+            self._state["message"] = INVALID_SELECTION_MESSAGE
+            return
+        self._do(option.action)
+
+
+
+
+
+
+    def cancel(self):
+        """The Cancel key. Safe on every screen. It never changes a balance."""
+        target = CANCEL_GOES_TO.get(self._state["screen"])
+        if target is None:
+            return  # welcome screen: nothing to cancel
+        if target == "eject":
+            self.eject()
+        elif self._state["screen"] == "confirm":
+            self._do("confirm_no")
+        else:
+            self._do(target)
+
+    def eject(self):
+        """Finish the session. The card comes out and waits to be taken."""
+        if self._state["screen"] in ("welcome", "collect"):
+            return
+        self._state["receipt_ready"] = False
+        self._state["cash"] = None
+        self._go("collect", EJECT_MESSAGE)
+
+    def finish(self):
+        """The card, receipt and cash were taken. Back to the welcome screen."""
+        if self._state["screen"] != "collect":
+            return self._out_of_step()
+        self._end_session(THANK_YOU_MESSAGE)
+
+
+
+
+
+    def _do(self, action):
+        if action == "menu":
+            self._go("menu", MENU_MESSAGE)
+        elif action == "balance":
+            self._go("balance", "Would you like to proceed\nwith a withdrawal?")
+        elif action == "withdraw_start":
+            self._go("withdraw_amount", AMOUNT_MESSAGE)
+        elif action == "deposit_start":
+            self._go("deposit_amount", AMOUNT_MESSAGE)
+        elif action == "change_pin_start":
+            self._go("change_pin", CHANGE_PIN_PROMPTS[0])
+        elif action == "additional":
+            self._go("additional", MENU_MESSAGE)
+        elif action == "mini_statement":
+            self._go("mini_statement", "")
+        elif action == "account_info":
+            self._go("account_info", "")
+        elif action.startswith("view_receipt:"):
+            self._state["view_index"] = int(action.split(":")[1])
+            self._go("receipt_view", "")
+            # _go clears view_index only for other screens, so it is kept here
+        elif action == "confirm_yes":
+            self._confirm()
+        elif action == "confirm_no":
+            self._go("menu", "Transaction cancelled.")
+        elif action == "exit":
+            self.eject()
