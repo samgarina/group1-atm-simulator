@@ -50,7 +50,7 @@ def login(card=SAVINGS_CARD, pin=SAVINGS_PIN):
     flow.submit_pin(pin)
     return service, flow
 
-
+# added by senilong
 def withdraw(flow, amount):
     """Menu to the collect screen using the side buttons."""
     flow.choose("L2")            # Cash Withdrawal
@@ -161,6 +161,271 @@ class ATMServiceCardAndReceiptTests(unittest.TestCase):
             ATMService.from_dict(data)
 
 
+
+class WithdrawalFlowTests(unittest.TestCase):
+
+    # WithdrawalFlowTests: replaces test_withdrawal_screen_shows_rules
+    def test_withdrawal_screen_shows_rules_but_no_balance(self):
+        _, flow = login()
+        flow.choose("L2")
+        screen = flow.screen()
+        self.assertEqual(screen.input_mode, "amount")
+        self.assertEqual(screen.message, "Please enter the amount.")
+        rows = dict(screen.rows)
+        self.assertEqual(rows["Minimum Withdrawal"], "PHP 100.00")
+        self.assertEqual(rows["Maximum Withdrawal"], "PHP 5,000.00")
+        self.assertEqual(rows["In multiples of"], "PHP 100")
+        self.assertNotIn("Available Balance", rows)   # balances are not shown here
+        self.assertNotIn("Current Balance", rows)
+
+    def test_invalid_amounts_keep_screen_and_balance(self):
+        service, flow = login()
+        cases = [
+            ("", "Invalid amount. Enter a number greater than zero."),
+            ("abc", "Invalid amount. Enter a number greater than zero."),
+            ("-5", "Amount must be greater than zero."),
+            ("0", "Amount must be greater than zero."),
+            ("50", "Minimum withdrawal is PHP 100.00."),
+            ("150", "Amount must be in multiples of PHP 100."),
+            ("5100", "Savings accounts allow a maximum of PHP 5000.00 per withdrawal."),
+            ("20000", "Insufficient funds for this withdrawal."),
+        ]
+        flow.choose("L2")
+        for amount, message in cases:
+            with self.subTest(amount=amount):
+                flow.submit_amount(amount)
+                self.assertEqual(flow.screen_name, "withdraw_amount")
+                self.assertEqual(flow.screen().message, message)
+                self.assertEqual(service.get_balance("1001"), D("15000.00"))
+                self.assertEqual(service.get_history("1001"), [])
+
+    def test_valid_amount_waits_for_confirm(self):
+        service, flow = login()
+        flow.choose("L2")
+        flow.submit_amount("1000")
+        screen = flow.screen()
+        self.assertEqual(screen.name, "confirm")
+        self.assertEqual(screen.message, "Withdraw PHP 1,000.00?")
+        self.assertEqual(screen.left_options()[3].label, "Yes")
+        self.assertEqual(screen.right_options()[3].label, "No")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))  # not changed yet
+
+    # replaces test_confirm_yes_withdraws_and_gives_receipt_and_cash
+    def test_confirm_yes_withdraws_and_gives_card_receipt_and_cash(self):
+        service, flow = login()
+        withdraw(flow, "1000")
+        screen = flow.screen()
+        self.assertEqual(screen.name, "collect")
+        self.assertEqual(screen.title, "TRANSACTION COMPLETE")
+        self.assertIn("Transaction approved.", screen.message)
+        self.assertIn("Please take your card, cash and receipt.", screen.message)
+        self.assertEqual(screen.left_options(), [None] * 4)    # no follow-up question
+        self.assertEqual(screen.right_options(), [None] * 4)
+        self.assertTrue(flow.card_inserted)                    # the card waits in the slot
+        self.assertEqual(service.get_balance("1001"), D("14000.00"))
+        self.assertEqual(flow.cash_amount(), D("1000.00"))
+        paper = flow.receipt_paper()
+        self.assertEqual(paper.amount, D("1000.00"))
+        self.assertEqual(paper.current_balance, D("14000.00"))
+        self.assertEqual(paper.available_balance, D("13500.00"))
+
+    # replaces test_second_confirm_press_does_not_withdraw_again
+    def test_second_confirm_press_does_not_withdraw_again(self):
+        service, flow = login()
+        withdraw(flow, "1000")
+        flow.choose("L4")   # the confirm button again: the screen has no buttons now
+        self.assertEqual(flow.screen_name, "collect")
+        self.assertEqual(flow.screen().message, "Invalid selection.")
+        self.assertEqual(service.get_balance("1001"), D("14000.00"))
+        self.assertEqual(len(service.get_history("1001")), 1)
+
+    def test_confirm_no_changes_nothing(self):
+        service, flow = login()
+        flow.choose("L2")
+        flow.submit_amount("1000")
+        flow.choose("R4")  # No
+        self.assertEqual(flow.screen_name, "menu")
+        self.assertEqual(flow.screen().message, "Transaction cancelled.")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+        self.assertIsNone(flow.to_dict()["pending"])
+
+    def test_cancel_key_on_confirm_changes_nothing(self):
+        service, flow = login()
+        flow.choose("L2")
+        flow.submit_amount("1000")
+        flow.cancel()
+        self.assertEqual(flow.screen_name, "menu")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+        self.assertEqual(service.get_history("1001"), [])
+
+    def test_cancel_key_on_amount_screen_returns_to_menu(self):
+        service, flow = login()
+        flow.choose("L2")
+        flow.cancel()
+        self.assertEqual(flow.screen_name, "menu")
+        self.assertTrue(flow.card_inserted)
+
+    def test_cash_and_receipt_wait_until_collected(self):
+        _, flow = login()
+        withdraw(flow, "1000")
+        flow.cancel()                      # Cancel does nothing while items wait
+        self.assertEqual(flow.screen_name, "collect")
+        self.assertIsNotNone(flow.cash_amount())
+        self.assertIsNotNone(flow.receipt_paper())
+        flow.finish()                      # everything was taken
+        self.assertEqual(flow.screen_name, "welcome")
+        self.assertIsNone(flow.cash_amount())
+        self.assertIsNone(flow.receipt_paper())
+
+    # replaces test_new_transaction_replaces_receipt_paper
+    def test_next_customer_gets_a_new_receipt(self):
+        _, flow = login()
+        withdraw(flow, "1000")
+        relogin(flow)
+        withdraw(flow, "500")
+        self.assertEqual(flow.receipt_paper().amount, D("500.00"))
+        self.assertEqual(flow.cash_amount(), D("500.00"))
+
+    # replaces test_checking_withdrawal, and adds the declined test
+    def test_checking_withdrawal(self):
+        service, flow = login(CHECKING_CARD, CHECKING_PIN)
+        withdraw(flow, "20000")
+        self.assertEqual(flow.screen_name, "collect")
+        self.assertEqual(service.get_balance("2001"), D("5000.00"))
+        self.assertEqual(flow.receipt_paper().available_balance, D("5000.00"))
+
+    def test_declined_confirm_goes_back_to_the_amount_screen(self):
+        # Another request spent the money after the amount was checked.
+        service, flow = login()
+        flow.choose("L2")
+        flow.submit_amount("5000")
+        service.withdraw("1001", "5000")
+        service.withdraw("1001", "5000")
+        service.withdraw("1001", "4500")        # balance is now 500.00
+        flow.choose("L4")                       # Yes
+        self.assertEqual(flow.screen_name, "withdraw_amount")
+        self.assertIn("Transaction declined.", flow.screen().message)
+        self.assertEqual(service.get_balance("1001"), D("500.00"))
+        self.assertTrue(flow.card_inserted)
+
+
+
+class DepositAndServicesTests(unittest.TestCase):
+
+    # DepositAndServicesTests: replaces test_deposit_flow
+    def test_deposit_flow(self):
+        service, flow = login()
+        flow.choose("R2")   # Additional Services
+        self.assertEqual(flow.screen().title, "ADDITIONAL SERVICES")
+        flow.choose("L1")   # Cash Deposit
+        self.assertEqual(flow.screen_name, "deposit_amount")
+        rows = dict(flow.screen().rows)
+        self.assertEqual(rows["Minimum Deposit"], "PHP 100.00")
+        self.assertEqual(rows["In multiples of"], "PHP 100")
+        cases = [
+            ("0", "Amount must be greater than zero."),
+            ("50", "Minimum deposit is PHP 100.00."),
+            ("250", "Amount must be in multiples of PHP 100."),
+            ("250.50", "Amount must be in multiples of PHP 100."),
+        ]
+        for amount, message in cases:
+            with self.subTest(amount=amount):
+                flow.submit_amount(amount)
+                self.assertEqual(flow.screen_name, "deposit_amount")
+                self.assertEqual(flow.screen().message, message)
+                self.assertEqual(service.get_balance("1001"), D("15000.00"))
+        flow.submit_amount("300")
+        self.assertEqual(flow.screen().message, "Deposit PHP 300.00?")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+        flow.choose("L4")
+        self.assertEqual(flow.screen_name, "collect")
+        self.assertIn("Please take your card and receipt.", flow.screen().message)
+        self.assertNotIn("cash", flow.screen().message)
+        self.assertIsNone(flow.cash_amount())           # a deposit gives no cash back
+        self.assertEqual(service.get_balance("1001"), D("15300.00"))
+        self.assertEqual(flow.receipt_paper().transaction_type, "Cash Deposit")
+
+    def test_deposit_cancel_returns_to_additional_services(self):
+        _, flow = login()
+        flow.choose("R2")
+        flow.choose("L1")
+        flow.cancel()
+        self.assertEqual(flow.screen_name, "additional")
+
+    def test_mini_statement_empty(self):
+        _, flow = login()
+        flow.choose("R2")
+        flow.choose("L2")
+        screen = flow.screen()
+        self.assertEqual(screen.name, "mini_statement")
+        self.assertEqual(screen.message, "No transactions yet.")
+        self.assertEqual(screen.left_options(), [None] * 4)
+
+    # replaces test_mini_statement_and_receipt_view, and adds the follow-up test
+    def test_mini_statement_and_receipt_view(self):
+        service, flow = login()
+        withdraw(flow, "1000")
+        relogin(flow)
+        withdraw(flow, "500")
+        relogin(flow)
+        flow.choose("R2")
+        flow.choose("L2")
+        screen = flow.screen()
+        left = screen.left_options()
+        self.assertEqual(left[0].label, "Cash Withdrawal 500.00")   # newest first
+        self.assertEqual(left[1].label, "Cash Withdrawal 1,000.00")
+        self.assertIsNone(left[2])
+        self.assertTrue(left[0].sub)
+
+        flow.choose("L2")   # open the older receipt
+        screen = flow.screen()
+        self.assertEqual(screen.name, "receipt_view")
+        rows = dict(screen.rows)
+        self.assertEqual(rows["Amount"], "PHP 1,000.00")
+        self.assertEqual(rows["Current Balance"], "PHP 14,000.00")
+        self.assertEqual(rows["Available Balance"], "PHP 13,500.00")
+        self.assertEqual(rows["Location"], "CTU")
+
+        flow.choose("R4")
+        self.assertEqual(flow.screen_name, "mini_statement")
+        flow.cancel()
+        self.assertEqual(flow.screen_name, "additional")
+
+    def test_balance_inquiry_and_services_keep_asking_for_more(self):
+        """Only withdrawal and deposit end the session by themselves."""
+        _, flow = login()
+        flow.choose("L1")                       # Balance Inquiry asks a question
+        self.assertEqual(flow.screen_name, "balance")
+        flow.choose("R4")                       # No: back to the services
+        self.assertEqual(flow.screen_name, "menu")
+        flow.choose("R2"); flow.choose("L3")    # Account Information
+        flow.choose("R4"); flow.choose("L2")    # back, then Mini Statement
+        flow.choose("R4")
+        self.assertEqual(flow.screen_name, "additional")
+        self.assertTrue(flow.card_inserted)
+        self.assertNotEqual(flow.screen().left_options(), [None] * 4)
+
+    def test_account_information(self):
+        _, flow = login()
+        flow.choose("R2")
+        flow.choose("L3")
+        rows = dict(flow.screen().rows)
+        self.assertEqual(rows["Account Type"], "Savings Account")
+        self.assertEqual(rows["Account No."], "****1001")
+        self.assertEqual(rows["Minimum Balance"], "PHP 500.00")
+        self.assertEqual(rows["Minimum Withdrawal"], "PHP 100.00")
+        self.assertEqual(rows["Maximum Withdrawal"], "PHP 5,000.00")
+        self.assertEqual(rows["Minimum Deposit"], "PHP 100.00")
+
+        _, flow = login(CHECKING_CARD, CHECKING_PIN)
+        flow.choose("R2")
+        flow.choose("L3")
+        rows = dict(flow.screen().rows)
+        self.assertEqual(rows["Minimum Balance"], "PHP 0.00")
+        self.assertEqual(rows["Maximum Withdrawal"], "PHP 20,000.00")
+
+
+
 class PinTests(unittest.TestCase):
 
     def test_wrong_pin_messages_then_block(self):
@@ -269,6 +534,45 @@ class MenuAndLayoutTests(unittest.TestCase):
         self.assertEqual(screen.right_options(), [None] * 4)
 
 
+class BalanceTests(unittest.TestCase):
+
+    def test_balance_inquiry_shows_three_distinct_values(self):
+        _, flow = login()
+        flow.choose("L1")
+        screen = flow.screen()
+        self.assertEqual(screen.name, "balance")
+        self.assertEqual(dict(screen.rows), {
+            "Current Balance": "PHP 15,000.00",
+            "Available Balance": "PHP 14,500.00",
+            "Maximum Withdrawal": "PHP 5,000.00",
+        })
+        self.assertIn("proceed", screen.message)
+
+    def test_checking_values(self):
+        _, flow = login(CHECKING_CARD, CHECKING_PIN)
+        flow.choose("L1")
+        self.assertEqual(dict(flow.screen().rows), {
+            "Current Balance": "PHP 25,000.00",
+            "Available Balance": "PHP 25,000.00",
+            "Maximum Withdrawal": "PHP 20,000.00",
+        })
+
+    def test_yes_goes_to_withdrawal_without_pin_again(self):
+        _, flow = login()
+        flow.choose("L1")
+        flow.choose("L4")  # Yes
+        self.assertEqual(flow.screen_name, "withdraw_amount")
+        self.assertTrue(flow.authenticated)
+
+    def test_no_returns_to_menu(self):
+        _, flow = login()
+        flow.choose("L1")
+        flow.choose("R4")  # No
+        self.assertEqual(flow.screen_name, "menu")
+
+
+
+
 
 class ExitTests(unittest.TestCase):
 
@@ -330,7 +634,8 @@ class ExitTests(unittest.TestCase):
         _, flow = make()
         flow.finish()
         self.assertEqual(flow.screen_name, "welcome")
-
+        
+    #by senilong
     def test_balance_survives_the_session_end(self):
         service, flow = login()
         withdraw(flow, "1000")
