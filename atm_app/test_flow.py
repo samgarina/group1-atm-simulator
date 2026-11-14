@@ -2,8 +2,10 @@ import json
 import unittest
 from datetime import datetime
 from decimal import Decimal
-from types import SimpleNamespace
-from unittest import mock
+from types import SimpleNamespace # by senilong 
+from unittest import mock # by senilong
+
+from .session_state import FLOW_KEY, RUN_KEY, SESSION_KEY, load_flow, load_service, save_flow, save_service
 
 from .atm_flow import ATMFlow, Screen
 from .exceptions import (
@@ -1094,3 +1096,81 @@ class SavedStateTests(unittest.TestCase):
         flow.eject()
         ATMFlow.from_dict(service, flow.to_dict())      # no exception
 
+
+
+class SessionHelperTests(unittest.TestCase):
+    """load_flow and save_flow work with any request that has a dict-like session."""
+
+    def fake_request(self):
+        return SimpleNamespace(session={})
+
+    def test_no_saved_flow_starts_at_welcome(self):
+        service = ATMService.with_sample_accounts()
+        flow = load_flow(self.fake_request(), service)
+        self.assertEqual(flow.screen_name, "welcome")
+
+    def test_save_and_load(self):
+        service, flow = login()
+        request = self.fake_request()
+        save_flow(request, flow)
+        self.assertEqual(request.session[FLOW_KEY], flow.to_dict())
+        json.dumps(request.session[FLOW_KEY])            # plain data only
+        loaded = load_flow(request, service)
+        self.assertEqual(loaded.screen_name, "menu")
+        self.assertTrue(loaded.authenticated)
+
+    def test_bad_saved_flow_resets_to_welcome(self):
+        service = ATMService.with_sample_accounts()
+        request = self.fake_request()
+        request.session[FLOW_KEY] = {"screen": "menu"}
+        flow = load_flow(request, service)
+        self.assertEqual(flow.screen_name, "welcome")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+
+    def test_flow_from_an_earlier_run_is_dropped(self):
+        """After the web app restarts, the ATM starts at the welcome screen again."""
+        service, flow = login()
+        request = self.fake_request()
+        save_flow(request, flow)
+        self.assertEqual(load_flow(request, service).screen_name, "menu")
+        request.session[RUN_KEY] = "an-earlier-run"
+        self.assertEqual(load_flow(request, service).screen_name, "welcome")
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))   # balances stay
+
+    def test_saved_flow_is_small(self):
+        service, flow = login()
+        withdraw(flow, "1000")
+        self.assertLess(len(json.dumps(flow.to_dict())), 500)
+
+class SessionServiceTests(unittest.TestCase):
+
+    def fake_request(self):
+        return SimpleNamespace(session={})
+
+    def test_first_visit_creates_and_saves_sample_accounts(self):
+        request = self.fake_request()
+        service = load_service(request)
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+        self.assertIn(SESSION_KEY, request.session)
+
+    def test_save_and_load_keep_changes(self):
+        request = self.fake_request()
+        service = load_service(request)
+        service.deposit("1001", "500")
+        save_service(request, service)
+        json.dumps(request.session[SESSION_KEY])          # plain data only
+        self.assertEqual(load_service(request).get_balance("1001"), D("15500.00"))
+
+    def test_bad_saved_data_starts_fresh(self):
+        request = self.fake_request()
+        request.session[SESSION_KEY] = {"nope": 1}
+        self.assertEqual(load_service(request).get_balance("1001"), D("15000.00"))
+
+    def test_too_big_data_is_refused_and_session_unchanged(self):
+        request = self.fake_request()
+        service = load_service(request)
+        before = request.session[SESSION_KEY]
+        with mock.patch("atm_app.session_state.MAX_SESSION_CHARS", 10):
+            with self.assertRaises(ATMError):
+                save_service(request, service)
+        self.assertEqual(request.session[SESSION_KEY], before)
