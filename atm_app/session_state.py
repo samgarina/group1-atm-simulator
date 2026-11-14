@@ -64,13 +64,13 @@ def load_service(request):
         # Saved data has the wrong shape (for example, an old format).
         # Start fresh instead of crashing.
         return _fresh_service(request)
-
+# added
 def save_flow(request, flow):
     """Save where the user is on the ATM screens (plain dict, no PIN)."""
     request.session[FLOW_KEY] = flow.to_dict()
     request.session[RUN_KEY] = RUN_ID
 
-
+#added
 def load_flow(request, service):
     """Return the ATMFlow for this browser session.
 
