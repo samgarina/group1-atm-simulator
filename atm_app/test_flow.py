@@ -1,14 +1,29 @@
 import json
+import unittest
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
-import unittest
+from unittest import mock
 
-from .atm_classes import Account, ATMService, SavingsAccount, Transaction
 from .exceptions import (
     ATMError,
-    InsufficientFundsError,
+    CardBlockedError,
+    IncorrectPinError,
     InvalidAmountError,
+    InvalidPinError,
+    InsufficientFundsError,
+    MinimumDepositError,
+    MinimumWithdrawalError,
     WithdrawalLimitError,
+)
+from .atm_classes import (
+    ATMService,
+    Account,
+    Card,
+    CheckingAccount,
+    SavingsAccount,
+    Transaction,
+    _to_money,
 )
 
 D = Decimal
@@ -184,3 +199,73 @@ class ATMServiceWithdrawTests(unittest.TestCase):
         self.assertEqual(history, [first, second])
         history.append("junk")                             # change the copy only
         self.assertEqual(service.get_history("1001"), [first, second])
+
+
+class CardTests(unittest.TestCase):
+
+    def make(self):
+        return Card.create("5000000000001001", "1001", "123456")
+
+    def test_correct_pin_passes_and_resets_attempts(self):
+        card = self.make()
+        with self.assertRaises(IncorrectPinError):
+            card.verify_pin("000000")
+        self.assertEqual(card.failed_attempts, 1)
+        card.verify_pin("123456")
+        self.assertEqual(card.failed_attempts, 0)
+
+    def test_three_wrong_pins_block_the_card(self):
+        card = self.make()
+        with self.assertRaises(IncorrectPinError):
+            card.verify_pin("000000")
+        with self.assertRaises(IncorrectPinError):
+            card.verify_pin("000000")
+        with self.assertRaises(CardBlockedError):
+            card.verify_pin("000000")
+        self.assertTrue(card.is_blocked)
+        with self.assertRaises(CardBlockedError):
+            card.verify_pin("123456")      # right PIN, but the card is blocked
+
+    def test_bad_pin_format_costs_no_attempt(self):
+        card = self.make()
+        for pin in ("123", "1234567", "abcdef", ""):
+            with self.subTest(pin=pin):
+                with self.assertRaises(InvalidPinError):
+                    card.verify_pin(pin)
+        self.assertEqual(card.failed_attempts, 0)
+
+    def test_pin_is_never_stored(self):
+        card = self.make()
+        self.assertNotIn("123456", json.dumps(card.to_dict()))
+
+    def test_change_pin(self):
+        card = self.make()
+        card.change_pin("123456", "111111", "111111")
+        card.verify_pin("111111")
+        with self.assertRaises(IncorrectPinError):
+            card.verify_pin("123456")
+
+    def test_change_pin_rejects_bad_input_and_changes_nothing(self):
+        card = self.make()
+        with self.assertRaises(InvalidPinError):
+            card.change_pin("123456", "111111", "222222")    # PINs do not match
+        with self.assertRaises(InvalidPinError):
+            card.change_pin("123456", "123456", "123456")    # same as the old PIN
+        with self.assertRaises(IncorrectPinError):
+            card.change_pin("000000", "111111", "111111")    # wrong current PIN
+        card.verify_pin("123456")                            # old PIN still works
+
+    def test_round_trip_keeps_the_pin_and_attempts(self):
+        card = self.make()
+        with self.assertRaises(IncorrectPinError):
+            card.verify_pin("000000")
+        copy = Card.from_dict(json.loads(json.dumps(card.to_dict())))
+        self.assertEqual(copy.failed_attempts, 1)
+        copy.verify_pin("123456")
+
+    def test_bad_saved_card_data_is_rejected(self):
+        data = self.make().to_dict()
+        for change in ({"pin_hash": "nothex"}, {"failed_attempts": 9}, {"blocked": "yes"}):
+            with self.subTest(change=change):
+                with self.assertRaises(ATMError):
+                    Card.from_dict({**data, **change})
