@@ -9,6 +9,7 @@
 
   const monitor = document.getElementById("monitor");
   const entryForm = document.getElementById("entry-form");
+  const cancelForm = document.getElementById("cancel-form");   // NEW in commit 2
   const keypad = document.getElementById("keypad");
   if (!monitor || !keypad) return; // the keypad markup is not on the page
 
@@ -72,11 +73,18 @@
     pressDigit("0");
   }
 
-  // The Clear key is added in the next commit, so it is ignored for now.
+  // NEW in commit 2
+  function clearEntry() {
+    if (!acceptsInput()) return;
+    setCurrent("");
+  }
+
+  // CHANGED in commit 2: Clear now has its own branch.
   function pressKey(key) {
-    if (key === ".") pressDecimal();
+    if (key === "clear") clearEntry();
+    else if (key === ".") pressDecimal();
     else if (key === "00") pressDoubleZero();
-    else if (key !== "clear") pressDigit(key);
+    else pressDigit(key);
   }
 
   // ------------------------------------------------------------------
@@ -109,6 +117,19 @@
     const button = event.target.closest("[data-key]");
     if (button && !button.disabled) pressKey(button.dataset.key);
   });
+
+  // NEW in commit 2: the Cancel key already submits #cancel-form.
+  // Lock the keypad so nothing else is typed or sent while it goes.
+  if (cancelForm) {
+    cancelForm.addEventListener("submit", function (event) {
+      if (locked) {
+        event.preventDefault();
+        return;
+      }
+      locked = true;
+      updateKeys();
+    });
+  }
 
   // ------------------------------------------------------------------
   // Start
