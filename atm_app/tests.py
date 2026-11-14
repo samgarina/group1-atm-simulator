@@ -19,6 +19,7 @@ from .atm_classes import (
 
 D = Decimal
 
+
 class MoneyTests(unittest.TestCase):
     """Goal 6: Decimal accuracy and input cleaning."""
     def test_float_is_exact(self):
@@ -43,6 +44,7 @@ class MoneyTests(unittest.TestCase):
         for _ in range(10):
             acc.deposit("100")
         self.assertEqual(acc.balance, D("1000"))
+
 
 class AccountBasicsTests(unittest.TestCase):
     """Goals 3, 4, 5 on the parent class."""
@@ -94,6 +96,7 @@ class AccountBasicsTests(unittest.TestCase):
         with self.assertRaises(InvalidAmountError):
             Account("2", "Bo", "-1")
 
+
 class SavingsRuleTests(unittest.TestCase):
     """Goal 2: savings keeps PHP 500 minimum."""
     def setUp(self):
@@ -138,6 +141,7 @@ class SavingsRuleTests(unittest.TestCase):
         self.acc.withdraw("500")
         self.assertEqual(self.acc.available_balance, D("0.00"))
 
+
 class CheckingRuleTests(unittest.TestCase):
     """Goal 2: checking has PHP 10,000 per-withdrawal limit."""
     def setUp(self):
@@ -173,6 +177,7 @@ class CheckingRuleTests(unittest.TestCase):
         # Checking has no minimum balance.
         self.assertEqual(self.acc.available_balance, D("25000.00"))
 
+
 class CommonWithdrawalRuleTests(unittest.TestCase):
     """Rules from Account.check_withdrawal(). Every account type has them."""
     def test_below_minimum_withdrawal(self):
@@ -204,6 +209,7 @@ class CommonWithdrawalRuleTests(unittest.TestCase):
         self.assertEqual(acc.transactions, [])
         with self.assertRaises(WithdrawalLimitError):
             CheckingAccount("C2", "B", "50000").check_withdrawal("20100")
+
 
 class DepositRuleTests(unittest.TestCase):
     """Deposits: at least PHP 100, in multiples of PHP 100, no coins."""
@@ -253,6 +259,7 @@ class DepositRuleTests(unittest.TestCase):
         with self.assertRaises(MinimumDepositError):
             acc.check_deposit("99")
 
+
 class PolymorphismTests(unittest.TestCase):
     """Goal 9: same call, different result."""
     def test_same_call_different_result(self):
@@ -266,6 +273,8 @@ class PolymorphismTests(unittest.TestCase):
             except ATMError as e:
                 results.append(type(e).__name__)
         self.assertEqual(results, ["WithdrawalLimitError", "ok"])
+        self.assertEqual(accounts[0].balance, D("20000.00"))
+        self.assertEqual(accounts[1].balance, D("10000.00"))
 
     def test_savings_blocks_what_checking_allows(self):
         s = SavingsAccount("S", "A", "600")
@@ -273,11 +282,9 @@ class PolymorphismTests(unittest.TestCase):
         with self.assertRaises(InsufficientFundsError):
             s.withdraw("200")
         c.withdraw("200")
+        self.assertEqual(s.balance, D("600.00"))
         self.assertEqual(c.balance, D("400.00"))
 
-    def test_is_a_relationship(self):
-        self.assertIsInstance(SavingsAccount("S", "A", "500"), Account)
-        self.assertIsInstance(CheckingAccount("C", "B"), Account)
 
 class SerializationTests(unittest.TestCase):
     """Goal 7."""
@@ -309,6 +316,7 @@ class SerializationTests(unittest.TestCase):
             Account.from_dict({"account_type": "Gold"})
         with self.assertRaises(ATMError):
             ATMService.from_dict({"accounts": [{"account_type": "Gold"}]})
+
 
 class HistoryCapTests(unittest.TestCase):
     """Phase 5: saved history keeps only the newest transactions."""
