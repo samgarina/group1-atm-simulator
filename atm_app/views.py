@@ -20,7 +20,6 @@ def dashboard(request):
 
     return render(request, "index.html", context)
 
-
 # Deposit placeholder
 def deposit(request):
     return HttpResponse("Deposit Placeholder")
