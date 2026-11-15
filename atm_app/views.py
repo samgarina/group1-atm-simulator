@@ -1,9 +1,9 @@
-from django.http import HttpResponse
 from django.shortcuts import render
 from .session_state import load_state
 from django.contrib import messages
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
+from .session_state import reset_state
 
 from .atm_flow import deposit_flow, withdraw_flow
 
@@ -60,5 +60,11 @@ def withdraw(request):
 
 
 # Reset placeholder
+@require_POST
 def reset(request):
-    return HttpResponse("Reset Placeholder")
+    # Restore the account and transaction history
+    reset_state(request.session)
+
+    messages.success(request, "ATM session has been reset.")
+
+    return redirect("atm_app:dashboard")
