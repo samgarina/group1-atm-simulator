@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.test import TestCase
 from django.urls import reverse
 
@@ -69,110 +70,88 @@ class ATMResetViewTests(TestCase):
         self.assertEqual(final_balance, starting_balance)
 
 
-class WebFlowTests(TestCase):
-    """End-to-end browser workflow tests across ATM screens."""
+class ATMIntegrationFlowTests(TestCase):
 
-    @staticmethod
-    def _val(obj, key):
-        if isinstance(obj, dict):
-            return obj.get(key)
-        return getattr(obj, key, None)
+    def test_full_deposit_withdraw_and_reset_flow(self):
+        # GET dashboard
+        initial_response = self.client.get(reverse("atm_app:dashboard"))
+        self.assertEqual(initial_response.status_code, 200)
+        starting_balance = Decimal(str(initial_response.context["balance"]))
 
-    def _first_card_and_pin(self, response):
-        wallet = response.context["wallet"]
-        demo_help = response.context["demo_help"]
-        card = next(c for c in wallet if not self._val(c, "blocked"))
-        pin = next(
-            self._val(row, "pin")
-            for row in demo_help
-            if self._val(row, "last_four") == self._val(card, "last_four")
-        )
-        return self._val(card, "card_number"), pin
-
-    def _login(self):
-        res = self.client.get(reverse("atm_app:dashboard"))
-        card_number, pin = self._first_card_and_pin(res)
-        res = self.client.post(
-            reverse("atm_app:insert_card"),
-            {"card_number": card_number},
-            follow=True,
-        )
-        res = self.client.post(
-            reverse("atm_app:submit_pin"),
-            {"pin": pin},
-            follow=True,
-        )
-        return res, card_number, pin
-
-    def _choose(self, response, keyword):
-        slots = list(response.context["left"]) + list(response.context["right"])
-        match = next(
-            item
-            for item in slots
-            if self._val(item, "option")
-            and keyword.lower() in self._val(self._val(item, "option"), "label").lower()
-        )
-        return self.client.post(
-            reverse("atm_app:choose"),
-            {"slot": self._val(match, "slot")},
-            follow=True,
-        )
-
-    def test_welcome_screen_renders_wallet_and_demo_controls(self):
-        res = self.client.get(reverse("atm_app:dashboard"))
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(self._val(res.context["screen"], "name"), "welcome")
-        self.assertGreater(len(res.context["wallet"]), 0)
-
-    def test_insert_card_and_valid_pin_reaches_menu(self):
-        res, _, _ = self._login()
-        self.assertEqual(res.status_code, 200)
-        self.assertNotIn(self._val(res.context["screen"], "name"), ("welcome", "pin"))
-
-    def test_invalid_pin_stays_on_pin_screen(self):
-        res = self.client.get(reverse("atm_app:dashboard"))
-        card_number, _ = self._first_card_and_pin(res)
-        self.client.post(
-            reverse("atm_app:insert_card"),
-            {"card_number": card_number},
-            follow=True,
-        )
-        res = self.client.post(
-            reverse("atm_app:submit_pin"),
-            {"pin": "0000"},
-            follow=True,
-        )
-        self.assertEqual(self._val(res.context["screen"], "name"), "pin")
-
-    def test_deposit_and_withdraw_web_flow(self):
-        res, _, _ = self._login()
-        res = self._choose(res, "deposit")
-        self.assertEqual(self._val(res.context["screen"], "input_mode"), "amount")
-        res = self.client.post(
-            reverse("atm_app:submit_amount"),
+        # POST deposit
+        deposit_response = self.client.post(
+            reverse("atm_app:deposit"),
             {"amount": "500"},
             follow=True,
         )
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(deposit_response.status_code, 200)
+        self.assertEqual(
+            Decimal(str(deposit_response.context["balance"])),
+            starting_balance + Decimal("500.00"),
+        )
 
-    def test_change_pin_flow(self):
-        res, _, old_pin = self._login()
-        res = self._choose(res, "pin")
-        self.assertEqual(self._val(res.context["screen"], "input_mode"), "change_pin")
-        res = self.client.post(
-            reverse("atm_app:change_pin"),
-            {
-                "current_pin": old_pin,
-                "new_pin": "6543",
-                "confirm_pin": "6543",
-            },
+        # POST withdraw
+        withdraw_response = self.client.post(
+            reverse("atm_app:withdraw"),
+            {"amount": "200"},
             follow=True,
         )
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(withdraw_response.status_code, 200)
+        self.assertEqual(
+            Decimal(str(withdraw_response.context["balance"])),
+            starting_balance + Decimal("300.00"),
+        )
 
-    def test_cancel_and_collect_returns_to_welcome(self):
-        res, _, _ = self._login()
-        res = self.client.post(reverse("atm_app:cancel"), follow=True)
-        self.assertEqual(self._val(res.context["screen"], "name"), "collect")
-        res = self.client.post(reverse("atm_app:collect"), follow=True)
-        self.assertEqual(self._val(res.context["screen"], "name"), "welcome")
+        # POST reset
+        reset_response = self.client.post(
+            reverse("atm_app:reset"),
+            follow=True,
+        )
+        self.assertEqual(reset_response.status_code, 200)
+        self.assertEqual(
+            Decimal(str(reset_response.context["balance"])),
+            starting_balance,
+        )
+
+    def test_overdraft_shows_readable_error_and_leaves_balance_unchanged(self):
+        res = self.client.get(reverse("atm_app:dashboard"))
+        balance = Decimal(str(res.context["balance"]))
+
+        # Drain available funds within valid bill/limit steps so next withdrawal triggers overdraft
+        for _ in range(10):
+            if balance < Decimal("5000.00"):
+                break
+            res = self.client.post(
+                reverse("atm_app:withdraw"),
+                {"amount": "5000"},
+                follow=True,
+            )
+            new_balance = Decimal(str(res.context["balance"]))
+            if new_balance == balance:
+                break
+            balance = new_balance
+
+        # Attempt overdraft withdrawal
+        overdraft_response = self.client.post(
+            reverse("atm_app:withdraw"),
+            {"amount": "5000"},
+            follow=True,
+        )
+        self.assertEqual(overdraft_response.status_code, 200)
+
+        # Balance must remain unchanged
+        self.assertEqual(
+            Decimal(str(overdraft_response.context["balance"])),
+            balance,
+        )
+
+        # Readable error message must be shown
+        messages_list = [str(m) for m in overdraft_response.context.get("messages", [])]
+        page_text = overdraft_response.content.decode().lower()
+        self.assertTrue(
+            bool(messages_list)
+            or any(
+                term in page_text
+                for term in ("insufficient", "minimum", "not enough", "exceeds", "error")
+            )
+        )
