@@ -1,11 +1,6 @@
 from django.http import HttpResponse
 from django.shortcuts import render
 from .session_state import load_state
-from django.contrib import messages
-from django.shortcuts import redirect
-from django.views.decorators.http import require_POST
-
-from .atm_flow import deposit_flow, withdraw_flow   
 
 
 # Dashboard placeholder
@@ -27,37 +22,13 @@ def dashboard(request):
 
 
 # Deposit placeholder
-@require_POST
 def deposit(request):
-    # Get the amount entered in the deposit form
-    raw_amount = request.POST.get("amount", "")
-
-    # Process the deposit through the ATM flow
-    success, message = deposit_flow(request.session, raw_amount)
-
-    if success:
-        messages.success(request, message)
-    else:
-        messages.error(request, message)
-
-    return redirect("atm_app:dashboard")
+    return HttpResponse("Deposit Placeholder")
 
 
-@require_POST
+# Withdraw placeholder
 def withdraw(request):
-    # Get the amount entered in the withdraw form
-    raw_amount = request.POST.get("amount", "")
-
-    # Process the withdrawal through the ATM flow
-    success, message = withdraw_flow(request.session, raw_amount)
-
-    if success:
-        messages.success(request, message)
-    else:
-        messages.error(request, message)
-
-    return redirect("atm_app:dashboard")
-
+    return HttpResponse("Withdraw Placeholder")
 
 
 # Reset placeholder
