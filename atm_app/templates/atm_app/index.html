@@ -8,6 +8,15 @@
   <link rel="stylesheet" href="{% static 'atm_app/css/style.css' %}?v=2">
 </head>
 <body>
+
+  {% if messages %}
+  <ul class="system-messages">
+    {% for message in messages %}
+    <li class="{{ message.tags }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
   <main class="atm" id="atm">
     <header class="atm-header">
       <div class="brand">
@@ -28,23 +37,24 @@
         </button>
       </div>
 
-      <div class="monitor" id="monitor" data-screen="placeholder_screen" data-input="pin">
-        <h2 class="monitor-title">ATM Screen Title</h2>
+      <div class="monitor" id="monitor" data-screen="{{ screen.name }}" data-input="{{ screen.input_mode }}">
+        <h2 class="monitor-title">{{ screen.title }}</h2>
 
         <div class="monitor-main">
-          <p class="monitor-message">Please insert your card or enter your PIN to begin transaction.</p>
+          <p class="monitor-message">{{ screen.message|linebreaksbr }}</p>
 
+          {% if screen.rows %}
           <dl class="monitor-rows">
-            <dt>Account Status</dt>
-            <dd>Active</dd>
-            <dt>Available Balance</dt>
-            <dd>PHP 10,000.00</dd>
+            {% for label, value in screen.rows %}
+            <dt>{{ label }}</dt>
+            <dd>{{ value }}</dd>
+            {% endfor %}
           </dl>
+          {% endif %}
 
           {% if screen.input_mode == "pin" %}
           <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_pin' %}">
             {% csrf_token %}
-          <form id="entry-form" class="entry-form" method="post" action="#">
             <label for="pin">PIN</label>
             <input type="password" id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>
@@ -52,7 +62,6 @@
           {% elif screen.input_mode == "amount" %}
           <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_amount' %}">
             {% csrf_token %}
-          <form id="entry-form" class="entry-form" method="post" action="#">
             <label for="amount">Amount (PHP)</label>
             <input type="text" id="amount" name="amount" inputmode="decimal" autocomplete="off">
             <button type="submit" class="entry-submit">Enter</button>
