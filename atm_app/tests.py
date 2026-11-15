@@ -266,6 +266,8 @@ class PolymorphismTests(unittest.TestCase):
             except ATMError as e:
                 results.append(type(e).__name__)
         self.assertEqual(results, ["WithdrawalLimitError", "ok"])
+        self.assertEqual(accounts[0].balance, D("20000.00"))
+        self.assertEqual(accounts[1].balance, D("10000.00"))
 
     def test_savings_blocks_what_checking_allows(self):
         s = SavingsAccount("S", "A", "600")
@@ -273,11 +275,16 @@ class PolymorphismTests(unittest.TestCase):
         with self.assertRaises(InsufficientFundsError):
             s.withdraw("200")
         c.withdraw("200")
+        self.assertEqual(s.balance, D("600.00"))
         self.assertEqual(c.balance, D("400.00"))
 
     def test_is_a_relationship(self):
-        self.assertIsInstance(SavingsAccount("S", "A", "500"), Account)
-        self.assertIsInstance(CheckingAccount("C", "B"), Account)
+        savings = SavingsAccount("S", "A", "500")
+        checking = CheckingAccount("C", "B")
+        self.assertIsInstance(savings, Account)
+        self.assertIsInstance(checking, Account)
+        self.assertIsInstance(savings, SavingsAccount)
+        self.assertIsInstance(checking, CheckingAccount)
 
 class SerializationTests(unittest.TestCase):
     """Goal 7."""
@@ -330,6 +337,59 @@ class HistoryCapTests(unittest.TestCase):
         self.assertEqual(restored.balance, D("12000.00"))
         self.assertEqual(len(restored.transactions), 10)
 
+class ATMServiceTests(unittest.TestCase):
+    """Goals 1 and 8."""
+
+    def setUp(self):
+        self.svc = ATMService.with_sample_accounts()
+
+    def test_sample_accounts(self):
+        self.assertEqual(len(self.svc.list_accounts()), 2)
+        self.assertEqual(self.svc.get_balance("1001"), D("15000.00"))
+        self.assertEqual(self.svc.get_balance("2001"), D("25000.00"))
+
+    def test_account_number_as_int_or_str(self):
+        self.assertEqual(self.svc.get_account(1001).holder_name, "Maria Santos")
+
+    def test_missing_account(self):
+        for op in (lambda: self.svc.get_account("9999"),
+                   lambda: self.svc.get_balance("9999"),
+                   lambda: self.svc.deposit("9999", "10"),
+                   lambda: self.svc.withdraw("9999", "10"),
+                   lambda: self.svc.get_history("9999"),
+                   lambda: self.svc.get_account(None)):
+            with self.assertRaises(ATMError) as ctx:
+                op()
+            self.assertEqual(ctx.exception.message, "Account not found.")
+
+    def test_duplicate_account(self):
+        with self.assertRaises(ATMError):
+            self.svc.add_account(CheckingAccount("1001", "Dup"))
+
+    def test_full_workflow(self):
+        self.svc.deposit("1001", "500")
+        self.svc.withdraw("1001", "1000")
+        self.svc.withdraw("2001", "1000")
+        self.assertEqual(self.svc.get_balance("1001"), D("14500.00"))
+        self.assertEqual(self.svc.get_balance("2001"), D("24000.00"))
+        with self.assertRaises(WithdrawalLimitError):
+            self.svc.withdraw("2001", "20100")
+        with self.assertRaises(InsufficientFundsError):
+            self.svc.withdraw("1001", "14500")
+        self.assertEqual(self.svc.get_balance("1001"), D("14500.00"))
+        self.assertEqual(self.svc.get_balance("2001"), D("24000.00"))
+        self.assertEqual([t.kind for t in self.svc.get_history("1001")],
+                         ["deposit", "withdrawal"])
+        self.assertEqual(len(self.svc.get_history("2001")), 1)
+
+    def test_accounts_independent(self):
+        self.svc.deposit("1001", "100")
+        self.assertEqual(self.svc.get_history("2001"), [])
+
+    def test_sample_accounts_are_fresh_each_time(self):
+        self.svc.deposit("1001", "100")
+        self.assertEqual(ATMService.with_sample_accounts().get_balance("1001"),
+                         D("15000.00"))
 
 if __name__ == "__main__":
     unittest.main()
