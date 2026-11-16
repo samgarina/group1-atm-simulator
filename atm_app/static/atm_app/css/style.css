@@ -245,3 +245,7 @@ button { font-family: inherit; }
   body { overflow-x: auto; }
   .atm { font-size: 9px; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
