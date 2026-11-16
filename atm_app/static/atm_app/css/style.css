@@ -224,7 +224,28 @@ button { font-family: inherit; }
 }
 
 /* Small screens: keep the machine at a readable size and let the page scroll sideways. */
+
+/* ---------- success and error messages ---------- */
+
+.system-messages {
+  max-width: 960px;
+  margin: 0 auto 1rem;
+  padding: 0;
+  list-style: none;
+}
+.system-messages li {
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.4rem;
+  background: #fff;
+  border-left: 0.3rem solid var(--go);
+}
+.system-messages li.error { border-left-color: var(--stop); }
+
 @media (max-width: 640px) {
   body { overflow-x: auto; }
   .atm { font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
 }
