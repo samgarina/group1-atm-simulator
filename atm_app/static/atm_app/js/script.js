@@ -134,7 +134,7 @@
       picker.open = false; // first close the card window
       return;
     }
-    if (screenName === "welcome") return; // nothing to cancel
+    if (screenName === "welcome" || screenName === "collect") return; // nothing to cancel
     if (cancelForm.requestSubmit) cancelForm.requestSubmit();
     else cancelForm.submit();
   }
@@ -259,7 +259,7 @@
 
   // Cancel button (and Escape) end up here. Lock so nothing else is sent.
   cancelForm.addEventListener("submit", function (event) {
-    if (locked) {
+    if (locked || screenName === "collect") {
       event.preventDefault();
       return;
     }
@@ -375,18 +375,76 @@
   });
   render();
 
-  // After a transaction the receipt and cash come out.
-  if (screenName === "done") {
-    const printer = document.getElementById("receipt-printer");
-    const dispenser = document.getElementById("cash-dispenser");
-    printer.classList.add("is-printing");
-    dispenser.classList.add("is-dispensing");
-    const tab = printer.querySelector("summary");
-    if (tab) {
-      tab.addEventListener("animationend", function () {
+  // After a transaction the receipt and cash come out. A card always comes out.
+  const printer = document.getElementById("receipt-printer");
+  const dispenser = document.getElementById("cash-dispenser");
+  const slip = printer.querySelector(".slip");
+  const cash = dispenser.querySelector(".cash");
+
+  if (screenName === "collect") {
+    const dispensedCard = document.getElementById("dispensed-card");
+    const collectForm = document.getElementById("collect-form");
+
+    if (slip) printer.classList.add("is-printing");
+    if (cash) dispenser.classList.add("is-dispensing");
+    if (slip) {
+      slip.querySelector("summary").addEventListener("animationend", function () {
         printer.classList.remove("is-printing");
       });
     }
+
+    // What is waiting in the machine, and what the person has taken so far.
+    const waiting = { card: !!dispensedCard, receipt: !!slip, cash: !!cash };
+    const taken = { card: false, receipt: false, cash: false };
+
+    // When everything is taken and no popup is open, the session ends.
+    function checkAllTaken() {
+      if (waiting.card && !taken.card) return;
+      if (waiting.receipt && !taken.receipt) return;
+      if (waiting.cash && !taken.cash) return;
+      if ((slip && slip.open) || (cash && cash.open)) return;
+      window.setTimeout(function () { submitWith(collectForm, {}, null, 0); }, 600);
+    }
+
+    // Taking the card: click it.
+    if (dispensedCard) {
+      dispensedCard.addEventListener("click", function () {
+        if (taken.card) return;
+        taken.card = true;
+        dispensedCard.classList.add("is-taken");
+        dispensedCard.addEventListener("animationend", function () {
+          dispensedCard.remove();
+          checkAllTaken();
+        });
+      });
+    }
+
+    // Taking the receipt or the cash: open it, then close it. It leaves when closed.
+    [[slip, "receipt"], [cash, "cash"]].forEach(function (pair) {
+      const item = pair[0];
+      const name = pair[1];
+      if (!item) return;
+      // Opening it counts as taking it. (The toggle event can miss a fast open and close.)
+      item.querySelector("summary").addEventListener("click", function () {
+        taken[name] = true;
+      });
+      item.addEventListener("toggle", function () {
+        if (!item.open && taken[name]) {
+          item.classList.add("is-taken");
+          item.addEventListener("animationend", function () {
+            item.remove();
+            checkAllTaken();
+          });
+        }
+      });
+    });
+
+    // A click outside an open slip or cash popup closes it.
+    document.addEventListener("click", function (event) {
+      [slip, cash].forEach(function (item) {
+        if (item && item.open && !item.contains(event.target)) item.open = false;
+      });
+    });
   }
 
   // Back button: reload so the screen matches the server.
