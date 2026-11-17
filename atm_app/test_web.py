@@ -492,11 +492,11 @@ class WebFlowTests(SimpleTestCase):
         self.assertContains(response, 'name="pin"')
         self.assertNotContains(response, 'name="amount"')
 
-        response = self.go("submit_pin", {"pin": SAVINGS_PIN})   # menu
+        response = self.go("submit_pin", {"pin": SAVINGS_PIN})   # menu.
         self.assertNotContains(response, 'name="pin"')
         self.assertNotContains(response, 'name="amount"')
 
-        response = self.press("L2")   # withdrawal amount
+        response = self.press("L2")   # withdrawal amount.
         self.assertContains(response, 'name="amount"')
         self.assertNotContains(response, 'name="pin"')
 
