@@ -3,6 +3,8 @@ import hmac
 import os
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+
+
 from .exceptions import (
     ATMError,
     CardBlockedError,
@@ -12,13 +14,13 @@ from .exceptions import (
     InvalidPinError,
     MinimumDepositError,
     MinimumWithdrawalError,
+    MinimumWithdrawalError,
     WithdrawalLimitError,
 )
 
-
-# added by senilong
 def _to_money(value):
     """Turn a value into a Decimal with exactly 2 decimal places.
+
     Raises InvalidAmountError if the value is not a valid money number.
     """
     try:
@@ -41,25 +43,27 @@ def _to_money(value):
         # Number has too many digits for Decimal to hold.
         raise InvalidAmountError("Amount is too large.")
 
-# added by senilong
 def format_money(value):
     """Return money as text for the screen, for example 'PHP 5,000.00'."""
     return f"PHP {value:,.2f}"
 
-
 class Transaction:
     """One successful ATM operation (a deposit or a withdrawal)."""
+
     VALID_KINDS = ("deposit", "withdrawal")
 
     def __init__(self, kind, amount, balance_after, timestamp=None):
         if kind not in self.VALID_KINDS:
             raise ATMError("Unknown transaction type.")
+
         amount = _to_money(amount)
         balance_after = _to_money(balance_after)
+
         if amount <= 0:
             raise InvalidAmountError("Amount must be greater than zero.")
         if balance_after < 0:
             raise InvalidAmountError("Balance cannot be negative.")
+
         self._kind = kind
         self._amount = amount
         self._balance_after = balance_after
@@ -111,20 +115,25 @@ class Transaction:
 
 class Account:
     """A bank account. Parent class of SavingsAccount and CheckingAccount."""
+
     account_type = "Account"
+
     MINIMUM_BALANCE = Decimal("0.00")   # must remain in the account after a withdrawal
     MIN_WITHDRAWAL = Decimal("100.00")  # smallest amount allowed in one withdrawal
     MIN_DEPOSIT = Decimal("100.00")     # smallest amount allowed in one deposit
     BILL_STEP = Decimal("100")          # cash is withdrawn or deposited in multiples of this
+
     # Only the newest transactions are saved in the session cookie.
     MAX_SAVED_TRANSACTIONS = 10
 
     def __init__(self, account_number, holder_name, balance="0", transactions=None):
         if not holder_name or not str(holder_name).strip():
             raise ATMError("Account holder name is required.")
+
         balance = _to_money(balance)
         if balance < 0:
             raise InvalidAmountError("Opening balance cannot be negative.")
+
         self._account_number = str(account_number)
         self._holder_name = str(holder_name).strip()
         self._balance = balance
@@ -155,6 +164,7 @@ class Account:
 
     def available_for(self, balance):
         """Money that can be taken out when the balance is this amount.
+
         It is the balance minus the minimum balance, and never below zero.
         """
         return max(balance - self.MINIMUM_BALANCE, Decimal("0.00"))
@@ -188,14 +198,17 @@ class Account:
     def deposit(self, amount):
         amount = self.check_deposit(amount)
         new_balance = self._balance + amount
+
         # Build the record first. If anything fails, the balance is untouched.
         transaction = Transaction("deposit", amount, new_balance)
+
         self._balance = new_balance
         self._transactions.append(transaction)
         return transaction
 
     def check_withdrawal(self, amount):
         """Check a withdrawal. Return the clean amount. Change nothing.
+
         Raises an ATMError if the withdrawal is not allowed.
         Child classes override this to add their own rules.
         """
@@ -213,7 +226,9 @@ class Account:
         # The rules live in check_withdrawal(). Each account type has its own.
         amount = self.check_withdrawal(amount)
         new_balance = self._balance - amount
+
         transaction = Transaction("withdrawal", amount, new_balance)
+
         self._balance = new_balance
         self._transactions.append(transaction)
         return transaction
@@ -233,17 +248,7 @@ class Account:
     @classmethod
     def from_dict(cls, data):
         """Rebuild an account from a dict made by to_dict()."""
-        target_cls = cls
-        if cls is Account and "account_type" in data:
-            account_classes = {
-                SavingsAccount.account_type: SavingsAccount,
-                CheckingAccount.account_type: CheckingAccount,
-                Account.account_type: Account,
-            }
-            target_cls = account_classes.get(data["account_type"])
-            if target_cls is None:
-                raise ATMError("Unknown account type in saved data.")
-        return target_cls(
+        return cls(
             account_number=data["account_number"],
             holder_name=data["holder_name"],
             balance=data["balance"],
@@ -256,6 +261,7 @@ class Account:
 
 class SavingsAccount(Account):
     """A savings account. It keeps a minimum balance and a lower withdrawal limit."""
+
     account_type = "Savings Account"
     MINIMUM_BALANCE = Decimal("500.00")
     MAX_WITHDRAWAL = Decimal("5000.00")
@@ -263,6 +269,7 @@ class SavingsAccount(Account):
     def __init__(self, account_number, holder_name, balance="0", transactions=None):
         # Let the parent do its normal setup and checks first.
         super().__init__(account_number, holder_name, balance, transactions)
+
         # Then add the savings rule.
         if self._balance < self.MINIMUM_BALANCE:
             raise InvalidAmountError(
@@ -272,11 +279,13 @@ class SavingsAccount(Account):
     def check_withdrawal(self, amount):
         # Common rules first (amount, minimum withdrawal, bills, balance).
         amount = super().check_withdrawal(amount)
+
         # Savings rule 1: the balance after withdrawal must stay at or above the minimum.
         if self._balance - amount < self.MINIMUM_BALANCE:
             raise InsufficientFundsError(
                 f"Savings accounts must keep a minimum balance of PHP {self.MINIMUM_BALANCE}."
             )
+
         # Savings rule 2: one withdrawal cannot be above the savings limit.
         if amount > self.MAX_WITHDRAWAL:
             raise WithdrawalLimitError(
@@ -287,20 +296,20 @@ class SavingsAccount(Account):
 
 class CheckingAccount(Account):
     """A checking account. It has a higher withdrawal limit than savings."""
+
     account_type = "Checking Account"
     MAX_WITHDRAWAL = Decimal("20000.00")
 
     def check_withdrawal(self, amount):
         # Common rules first (amount, minimum withdrawal, bills, balance).
         amount = super().check_withdrawal(amount)
+
         # Checking rule: one withdrawal cannot be above the limit.
         if amount > self.MAX_WITHDRAWAL:
             raise WithdrawalLimitError(
                 f"Checking accounts allow a maximum of PHP {self.MAX_WITHDRAWAL} per withdrawal."
             )
         return amount
-
-
 
 class Receipt:
     """An ATM slip for one transaction. Built from a Transaction and its account.
@@ -376,8 +385,6 @@ class Receipt:
             ("Current Balance", format_money(self.current_balance)),
             ("Available Balance", format_money(self.available_balance)),
         ]
-
-
 
 class Card:
     """A bank card. It checks the PIN and counts wrong tries.
@@ -542,11 +549,12 @@ class Card:
     def __str__(self):
         return f"Card {self._card_number} for account {self._account_number}"
 
-# modified by senilong
 class ATMService:
     """The ATM machine. Holds all accounts and runs operations on them.
+
     Django views talk to this class. This class talks to the accounts.
     """
+
     # Maps the saved account_type text back to the right class.
     ACCOUNT_CLASSES = {
         SavingsAccount.account_type: SavingsAccount,
@@ -635,7 +643,6 @@ class ATMService:
     def deposit(self, account_number, amount):
         return self.get_account(account_number).deposit(amount)
 
-    # added withdraw
     def withdraw(self, account_number, amount):
         # The service does not know the account type. Each account applies its own rule.
         return self.get_account(account_number).withdraw(amount)
@@ -649,7 +656,6 @@ class ATMService:
             "accounts": [a.to_dict() for a in self._accounts.values()],
             "cards": [c.to_dict() for c in self._cards.values()],
         }
-
     @classmethod
     def from_dict(cls, data):
         """Rebuild the service from a dict made by to_dict()."""
@@ -662,3 +668,6 @@ class ATMService:
         # Old saved data has no "cards" key. KeyError makes the session reset safely.
         cards = [Card.from_dict(card_data) for card_data in data["cards"]]
         return cls(accounts, cards)
+
+
+
