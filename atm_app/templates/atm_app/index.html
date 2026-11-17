@@ -125,6 +125,22 @@
               {% endfor %}
             </div>
           </details>
+          {% elif screen.name == "collect" %}
+          <div class="slot has-card"><span class="slot-light is-busy"></span></div>
+          {% if card_info %}
+          <button type="button" class="wallet-card dispensed-card {% if card_info.account_type == 'Savings Account' %}is-savings{% else %}is-checking{% endif %}" id="dispensed-card" aria-label="Take your card">
+            <span class="wallet-chip"></span>
+            <span class="wallet-number">&bull;&bull;&bull;&bull; {{ card_info.last_four }}</span>
+            <span class="wallet-owner">{{ card_info.owner }}</span>
+            <span class="wallet-type">{{ card_info.account_type }}</span>
+          </button>
+          {% endif %}
+          <p class="bay-note">Please take your card.</p>
+          {# Without JavaScript this button ends the session. With JavaScript the items are taken one by one. #}
+          <form id="collect-form" method="post" action="{% url 'atm_app:collect' %}">
+            {% csrf_token %}
+            <button type="submit" class="take-all">Take everything</button>
+          </form>
           {% else %}
           <div class="slot has-card"><span class="slot-light is-busy"></span></div>
           <p class="bay-note">Card inserted</p>
