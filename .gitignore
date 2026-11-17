@@ -1,13 +1,25 @@
 # Python cache files
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # Virtual environments
+.venv/
 env/
 venv/
 
 # IDE and editor settings
 .vscode/
+.idea/
 
 # Django generated files
 db.sqlite3
+
+# Django Static and Media Files
+staticfiles/
+media/
+
+# OS Files
+.DS_Store
+Thumbs.db

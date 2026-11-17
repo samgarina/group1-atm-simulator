@@ -11,6 +11,6 @@ urlpatterns = [
     path("change-pin/", views.change_pin, name="change_pin"),
     path("cancel/", views.cancel, name="cancel"),
     path("eject/", views.eject, name="eject"),
-    path("colctle/", views.collect, name="collect"),
+    path("collect/", views.collect, name="collect"),
     path("reset/", views.reset, name="reset"),
 ]

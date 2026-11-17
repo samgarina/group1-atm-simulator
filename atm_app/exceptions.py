@@ -4,6 +4,7 @@ class ATMError(Exception):
     default_message = "An ATM error occurred."
 
     def __init__(self, message=None):
+        # Use the given message, or fall back to the class default.
         self.message = message or self.default_message
         super().__init__(self.message)
 
@@ -35,6 +36,7 @@ class InvalidPinError(ATMError):
 
     default_message = "Invalid PIN. Enter exactly 6 digits."
 
+
 class IncorrectPinError(ATMError):
     """The typed PIN is wrong. The card is not blocked yet."""
 
@@ -43,6 +45,7 @@ class IncorrectPinError(ATMError):
     def __init__(self, message=None, attempts_left=None):
         self.attempts_left = attempts_left
         super().__init__(message)
+
 
 class CardBlockedError(ATMError):
     """The card is blocked after too many wrong PIN attempts."""

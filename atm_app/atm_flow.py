@@ -1,7 +1,16 @@
+"""The ATM screen flow. Plain Python, no Django.
+
+ATMFlow remembers where the user is (which screen, which card, PIN done or
+not, a pending transaction). Django views pass user input to ATMFlow.
+ATMFlow changes the account only through ATMService, so all money rules
+stay in the account classes.
+
+The flow state is a small plain dict (to_dict) that is saved in the session.
+A PIN is never saved in it.
+"""
 
 from .atm_classes import _to_money, format_money
 from .exceptions import ATMError, CardBlockedError
-
 
 WELCOME_MESSAGE = "Welcome to PELEC Bank.\nPlease insert your ATM card."
 PIN_MESSAGE = "Please enter your six-digit PIN."
@@ -11,7 +20,6 @@ EJECT_MESSAGE = "Please take your card."
 THANK_YOU_MESSAGE = "Thank you for using PELEC Bank.\nPlease insert your card."
 OUT_OF_STEP_MESSAGE = "Please follow the instructions on the screen."
 INVALID_SELECTION_MESSAGE = "Invalid selection."
-
 
 # The three prompts of Change PIN. JavaScript shows them one by one and keeps
 # the typed PINs in memory. All three are sent together. Nothing is saved.
@@ -76,15 +84,6 @@ class Screen:
         return [self.options.get(slot) for slot in self.RIGHT_SLOTS]
 
 
-
-
-
-
-
-
-
-
-
 class ATMFlow:
     """Runs the ATM screens for one browser session."""
 
@@ -109,9 +108,22 @@ class ATMFlow:
             "cash": None,            # cash waiting in the dispenser (text)
         }
 
+    @property
+    def screen_name(self):
+        return self._state["screen"]
 
+    @property
+    def card_inserted(self):
+        return bool(self._state["card"])
 
+    @property
+    def authenticated(self):
+        return self._state["authed"]
 
+    @property
+    def card_number(self):
+        """The number of the card in the machine. Empty text if there is none."""
+        return self._state["card"]
 
     def to_dict(self):
         state = dict(self._state)
@@ -194,9 +206,6 @@ class ATMFlow:
         except (KeyError, TypeError, ValueError):
             raise bad
 
-
-
-
     # ------------------------------------------------------------------
     # small helpers
     # ------------------------------------------------------------------
@@ -228,13 +237,24 @@ class ATMFlow:
         limit = getattr(account, "MAX_WITHDRAWAL", None)
         return "No limit" if limit is None else format_money(limit)
 
+    # ------------------------------------------------------------------
+    # what the monitor shows
+    # ------------------------------------------------------------------
 
+    def screen(self):
+        builder = getattr(self, "_screen_" + self._state["screen"])
+        return builder()
 
+    def receipt_paper(self):
+        """The newest receipt, if a slip waits in the printer. Else None."""
+        if not self._state["receipt_ready"]:
+            return None
+        return self._service.recent_receipts(self._account().account_number, 1)[0]
 
-
-
-
-
+    def cash_amount(self):
+        """Cash waiting in the dispenser as a Decimal. None if there is none."""
+        cash = self._state["cash"]
+        return None if cash is None else _to_money(cash)
 
     def _screen_welcome(self):
         return Screen("welcome", "WELCOME", self._state["message"])
@@ -286,7 +306,6 @@ class ATMFlow:
         return Screen("deposit_amount", "CASH DEPOSIT", self._state["message"],
                       {"R4": Option("Back", "additional")}, input_mode="amount", rows=rows)
 
-
     def _screen_confirm(self):
         options = {
             "L4": Option("Yes", "confirm_yes"),
@@ -294,11 +313,6 @@ class ATMFlow:
         }
         return Screen("confirm", "CONFIRM", self._state["message"], options)
 
-
-
-
-    
-    
     def _screen_collect(self):
         """The card (and the receipt and cash) wait in the machine. No buttons."""
         title = "TRANSACTION COMPLETE" if self._state["receipt_ready"] else "THANK YOU"
@@ -350,16 +364,11 @@ class ATMFlow:
         ]
         return Screen("account_info", "ACCOUNT INFORMATION", self._state["message"],
                       {"R4": Option("Back", "additional")}, rows=rows)
-    
+
     def _screen_change_pin(self):
         return Screen("change_pin", "CHANGE PIN", self._state["message"],
                       {"R4": Option("Back", "menu")}, input_mode="change_pin",
                       prompts=list(CHANGE_PIN_PROMPTS))
-
-
-
-
-
 
     # ------------------------------------------------------------------
     # user input. The view calls these. Then it saves service and flow.
@@ -392,7 +401,6 @@ class ATMFlow:
             self._state["authed"] = True
             self._go("menu", MENU_MESSAGE)
 
-    
     def submit_change_pin(self, current_pin, new_pin, confirm_pin):
         if self._state["screen"] != "change_pin":
             return self._out_of_step()
@@ -407,10 +415,6 @@ class ATMFlow:
         else:
             self._go("menu", "PIN changed successfully.")
 
-
-
-
-
     def choose(self, slot):
         """A side button was pressed. slot is 'L1'...'L4' or 'R1'...'R4'."""
         option = self.screen().options.get(slot)
@@ -418,7 +422,6 @@ class ATMFlow:
             self._state["message"] = INVALID_SELECTION_MESSAGE
             return
         self._do(option.action)
-
 
     def submit_amount(self, value):
         """An amount was entered. The account checks it. Nothing is changed yet."""
@@ -438,12 +441,6 @@ class ATMFlow:
             return
         self._state["pending"] = {"kind": kind, "amount": str(amount)}
         self._go("confirm", f"{verb} {format_money(amount)}?", keep_pending=True)
-
-
-
-
-
-
 
     def cancel(self):
         """The Cancel key. Safe on every screen. It never changes a balance."""
@@ -471,9 +468,9 @@ class ATMFlow:
             return self._out_of_step()
         self._end_session(THANK_YOU_MESSAGE)
 
-
-
-
+    # ------------------------------------------------------------------
+    # actions behind the side buttons
+    # ------------------------------------------------------------------
 
     def _do(self, action):
         if action == "menu":
@@ -529,4 +526,3 @@ class ATMFlow:
         else:
             message = "Transaction approved.\nPlease take your card and receipt."
         self._go("collect", message)
-
