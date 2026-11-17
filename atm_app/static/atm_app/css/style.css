@@ -585,6 +585,48 @@ button { font-family: inherit; }
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* ---------- collecting the card, receipt and cash ---------- */
+
+/* The card comes out of the slot and waits to be taken. */
+.dispensed-card {
+  position: absolute;
+  z-index: 25;
+  top: 0;
+  left: 0;
+  width: 12em;
+  cursor: pointer;
+  transform: translateY(-3.6em);
+  animation: card-out 1s ease-out both;
+}
+@keyframes card-out {
+  from { transform: translateY(1.4em) scale(0.92); opacity: 0; }
+  to { transform: translateY(-3.6em); opacity: 1; }
+}
+
+/* Taken items leave. JavaScript removes them when the animation ends. */
+.dispensed-card.is-taken { animation: take-card 0.5s ease-in forwards; pointer-events: none; }
+@keyframes take-card {
+  from { transform: translateY(-3.6em); opacity: 1; }
+  to { transform: translateY(-9em); opacity: 0; }
+}
+.slip.is-taken, .cash.is-taken { animation: take-item 0.4s ease-in forwards; pointer-events: none; }
+@keyframes take-item {
+  from { opacity: 1; }
+  to { opacity: 0; transform: translateY(0.8em); }
+}
+
+.take-all {
+  margin-top: 0.6em;
+  padding: 0.4em 0.9em;
+  font-size: 0.8em;
+  color: #eef1f4;
+  background: linear-gradient(#515962, #363b42);
+  border: 0;
+  border-radius: 0.3em;
+  cursor: pointer;
+}
+.js .take-all { display: none; }
+
 /* ---------- outside the machine ---------- */
 
 .system-messages {
