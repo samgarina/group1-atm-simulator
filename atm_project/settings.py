@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/6.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
-
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -19,13 +19,45 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-c5c$ilbb18p50dd62_$(09^rng=8_oj9ec1%=nr3=^82k5w%9i'
+import os
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Secret key from Vercel environment variables
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 
-ALLOWED_HOSTS = []
+if not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY environment variable is not set.")
+
+# Debug mode
+DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() == "true"
+
+# Allowed domains
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get(
+        "atm-simulator-beta.vercel.app",
+        "localhost,127.0.0.1"
+    ).split(",")
+    if host.strip()
+]
+
+# Automatically include Vercel deployment domains
+vercel_url = os.environ.get("VERCEL_URL")
+production_url = os.environ.get("VERCEL_PROJECT_PRODUCTION_URL")
+
+if vercel_url:
+    ALLOWED_HOSTS.append(vercel_url)
+
+if production_url and production_url not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(production_url)
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        ""
+    ).split(",")
+    if origin.strip()
+]
 
 
 # Application definition
