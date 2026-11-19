@@ -319,7 +319,7 @@ class Receipt:
     and the account's fixed minimum balance.
     """
 
-    BANK_NAME = "PELEC Bank"
+    BANK_NAME = "BBko"
     LOCATION = "CTU"
     TYPE_LABELS = {
         "withdrawal": "Cash Withdrawal",
