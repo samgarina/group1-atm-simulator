@@ -3,216 +3,240 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PELEC Bank ATM</title>
-  <link rel="stylesheet" href="{% static 'atm_app/css/style.css' %}?v=2">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#146B34">
+  <title>Bai Banko (BBko) ATM Simulator</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'atm_app/images/bbko-icon.svg' %}">
+  <link rel="stylesheet" href="{% static 'atm_app/css/style.css' %}?v=3">
 </head>
 <body>
-  {% if messages %}
-  <ul class="system-messages">
-    {% for message in messages %}
-    <li class="{{ message.tags }}">{{ message }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
+  {% include "atm_app/_icons.html" %}
 
-  <main class="atm" id="atm">
-    <header class="atm-header">
-      <div class="brand">
-        <span class="power-led" aria-hidden="true"></span>
-        <h1>ATM SIMULATOR</h1>
-      </div>
-      <p class="brand-note">Automated Teller Machine</p>
-    </header>
+  <div class="stage">
+    {% if messages %}
+    <ul class="system-messages">
+      {% for message in messages %}
+      <li class="{{ message.tags }}">{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
 
-    {# Empty forms. Side buttons and keys point to them with the form="..." attribute. #}
-    <form id="choose-form" method="post" action="{% url 'atm_app:choose' %}">{% csrf_token %}</form>
-    <form id="cancel-form" method="post" action="{% url 'atm_app:cancel' %}">{% csrf_token %}</form>
+    <main class="atm" id="atm">
+      <header class="atm-header">
+        <div class="brand">
+          <img class="brand-logo" src="{% static 'atm_app/images/bbko-logo.svg' %}" alt="Bai Banko (BBko)" width="190" height="48">
+          <span class="power-led" aria-hidden="true"></span>
+          <h1>ATM SIMULATOR</h1>
+        </div>
+        <p class="brand-note">Automated Teller Machine</p>
+        <a class="demo-link" href="#demo-controls" aria-label="Demo PINs and reset">
+          <svg class="icon" aria-hidden="true"><use href="#i-key"/></svg><span class="demo-link-text">Demo PINs</span>
+        </a>
+      </header>
 
-    <section class="machine-top">
-      {# The 8 side buttons are always here. Without an option a button is disabled. #}
-      <div class="side-buttons side-left">
-        {% for item in left %}
-        <button type="submit" form="choose-form" name="slot" value="{{ item.slot }}" class="side-button" id="slot-{{ item.slot }}"{% if not item.option %} disabled{% endif %}><span class="visually-hidden">{% if item.option %}{{ item.option.label }}{% else %}Not available{% endif %}</span></button>
-        {% endfor %}
-      </div>
+      {# Empty forms. Side buttons and keys point to them with the form="..." attribute. #}
+      <form id="choose-form" method="post" action="{% url 'atm_app:choose' %}" hidden>{% csrf_token %}</form>
+      <form id="cancel-form" method="post" action="{% url 'atm_app:cancel' %}" hidden>{% csrf_token %}</form>
 
-      <div class="monitor" id="monitor" data-screen="{{ screen.name }}" data-input="{{ screen.input_mode }}">
-        <h2 class="monitor-title">{{ screen.title }}</h2>
-
-        <div class="monitor-main">
-          <p class="monitor-message">{{ screen.message|linebreaksbr }}</p>
-
-          {% if screen.rows %}
-          <dl class="monitor-rows">
-            {% for label, value in screen.rows %}
-            <dt>{{ label }}</dt>
-            <dd>{{ value }}</dd>
-            {% endfor %}
-          </dl>
-          {% endif %}
-
-          {% if screen.input_mode == "pin" %}
-          <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_pin' %}">
-            {% csrf_token %}
-            <label for="pin">PIN</label>
-            <input type="password" id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">
-            <button type="submit" class="entry-submit">Enter</button>
-          </form>
-          {% elif screen.input_mode == "amount" %}
-          <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_amount' %}">
-            {% csrf_token %}
-            <label for="amount">Amount (PHP)</label>
-            <input type="text" id="amount" name="amount" inputmode="decimal" autocomplete="off">
-            <button type="submit" class="entry-submit">Enter</button>
-          </form>
-          {% elif screen.input_mode == "change_pin" %}
-          <form id="entry-form" class="entry-form entry-form-stack" method="post" action="{% url 'atm_app:change_pin' %}">
-            {% csrf_token %}
-            <label for="current_pin">{{ screen.prompts.0 }}</label>
-            <input type="password" id="current_pin" name="current_pin" inputmode="numeric" maxlength="6" autocomplete="off">
-            <label for="new_pin">{{ screen.prompts.1 }}</label>
-            <input type="password" id="new_pin" name="new_pin" inputmode="numeric" maxlength="6" autocomplete="off">
-            <label for="confirm_pin">{{ screen.prompts.2 }}</label>
-            <input type="password" id="confirm_pin" name="confirm_pin" inputmode="numeric" maxlength="6" autocomplete="off">
-            <button type="submit" class="entry-submit">Enter</button>
-          </form>
-          {% endif %}
+      <section class="machine-top">
+        {# The 8 side buttons are always here. Without an option a button is disabled. #}
+        <div class="side-buttons side-left">
+          {% for item in left %}
+          <button type="submit" form="choose-form" name="slot" value="{{ item.slot }}" class="side-button" id="slot-{{ item.slot }}"{% if not item.option %} disabled{% endif %}><span class="visually-hidden">{% if item.option %}{{ item.option.label }}{% else %}Not available{% endif %}</span></button>
+          {% endfor %}
         </div>
 
-        {# Option labels. Always 4 rows per side, so each text lines up with its button. #}
-        <div class="monitor-labels">
-          <ol class="labels labels-left">
-            {% for item in left %}
-            <li>{% if item.option %}<strong>{{ item.option.label }}</strong>{% if item.option.sub %}<small>{{ item.option.sub }}</small>{% endif %}{% endif %}</li>
-            {% endfor %}
-          </ol>
-          <ol class="labels labels-right">
-            {% for item in right %}
-            <li>{% if item.option %}<strong>{{ item.option.label }}</strong>{% if item.option.sub %}<small>{{ item.option.sub }}</small>{% endif %}{% endif %}</li>
-            {% endfor %}
-          </ol>
-        </div>
-      </div>
+        <div class="monitor" id="monitor" data-screen="{{ screen.name }}" data-input="{{ screen.input_mode }}">
+          <h2 class="monitor-title">{% include "atm_app/_screen_icon.html" %}<span>{{ screen.title }}</span></h2>
 
-      <div class="side-buttons side-right">
-        {% for item in right %}
-        <button type="submit" form="choose-form" name="slot" value="{{ item.slot }}" class="side-button" id="slot-{{ item.slot }}"{% if not item.option %} disabled{% endif %}><span class="visually-hidden">{% if item.option %}{{ item.option.label }}{% else %}Not available{% endif %}</span></button>
-        {% endfor %}
-      </div>
-    </section>
+          <div class="monitor-main">
+            <p class="monitor-message">{{ screen.message|linebreaksbr }}</p>
 
-    <section class="machine-bottom">
-      <div class="bay bay-left">
-        <div class="card-reader" id="card-slot">
-          <p class="bay-label">Insert card</p>
-          {% if screen.name == "welcome" %}
-          <details class="card-picker">
-            <summary class="slot slot-button" aria-label="Insert card"><span class="slot-light"></span></summary>
-            <div class="card-window">
-              <p class="window-title">Choose your card</p>
-              {% for card in wallet %}
-              <form method="post" action="{% url 'atm_app:insert_card' %}">
-                {% csrf_token %}
-                <input type="hidden" name="card_number" value="{{ card.card_number }}">
-                <button type="submit" class="wallet-card {% if card.account_type == 'Savings Account' %}is-savings{% else %}is-checking{% endif %}"{% if card.blocked %} disabled{% endif %}>
-                  <span class="wallet-chip"></span>
-                  <span class="wallet-number">&bull;&bull;&bull;&bull; {{ card.last_four }}</span>
-                  <span class="wallet-owner">{{ card.owner }}</span>
-                  <span class="wallet-type">{{ card.account_type }}{% if card.blocked %} - BLOCKED{% endif %}</span>
-                </button>
-              </form>
+            {% if screen.rows %}
+            <dl class="monitor-rows">
+              {% for label, value in screen.rows %}
+              <dt>{{ label }}</dt>
+              <dd>{{ value }}</dd>
               {% endfor %}
-            </div>
-          </details>
-          {% elif screen.name == "collect" %}
-          <div class="slot has-card"><span class="slot-light is-busy"></span></div>
-          {% if card_info %}
-          <button type="button" class="wallet-card dispensed-card {% if card_info.account_type == 'Savings Account' %}is-savings{% else %}is-checking{% endif %}" id="dispensed-card" aria-label="Take your card">
-            <span class="wallet-chip"></span>
-            <span class="wallet-number">&bull;&bull;&bull;&bull; {{ card_info.last_four }}</span>
-            <span class="wallet-owner">{{ card_info.owner }}</span>
-            <span class="wallet-type">{{ card_info.account_type }}</span>
-          </button>
-          {% endif %}
-          <p class="bay-note">Please take your card.</p>
-          {# Without JavaScript this button ends the session. With JavaScript the items are taken one by one. #}
-          <form id="collect-form" method="post" action="{% url 'atm_app:collect' %}">
-            {% csrf_token %}
-            <button type="submit" class="take-all">Take everything</button>
-          </form>
-          {% else %}
-          <div class="slot has-card"><span class="slot-light is-busy"></span></div>
-          <p class="bay-note">Card inserted</p>
-          {% endif %}
+            </dl>
+            {% endif %}
+
+            {% if screen.input_mode == "pin" %}
+            <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_pin' %}">
+              {% csrf_token %}
+              <label for="pin">PIN</label>
+              <input type="password" id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">
+              <button type="submit" class="entry-submit">Enter</button>
+            </form>
+            {% elif screen.input_mode == "amount" %}
+            <form id="entry-form" class="entry-form" method="post" action="{% url 'atm_app:submit_amount' %}">
+              {% csrf_token %}
+              <label for="amount">Amount (PHP)</label>
+              <input type="text" id="amount" name="amount" inputmode="decimal" autocomplete="off">
+              <button type="submit" class="entry-submit">Enter</button>
+            </form>
+            {% elif screen.input_mode == "change_pin" %}
+            <form id="entry-form" class="entry-form entry-form-stack" method="post" action="{% url 'atm_app:change_pin' %}">
+              {% csrf_token %}
+              <label for="current_pin">{{ screen.prompts.0 }}</label>
+              <input type="password" id="current_pin" name="current_pin" inputmode="numeric" maxlength="6" autocomplete="off">
+              <label for="new_pin">{{ screen.prompts.1 }}</label>
+              <input type="password" id="new_pin" name="new_pin" inputmode="numeric" maxlength="6" autocomplete="off">
+              <label for="confirm_pin">{{ screen.prompts.2 }}</label>
+              <input type="password" id="confirm_pin" name="confirm_pin" inputmode="numeric" maxlength="6" autocomplete="off">
+              <button type="submit" class="entry-submit">Enter</button>
+            </form>
+            {% endif %}
+          </div>
+
+          {# Option labels. Always 4 rows per side, so each text lines up with its button. #}
+          <div class="monitor-labels">
+            <ol class="labels labels-left">
+              {% for item in left %}
+              <li{% if item.option %} class="has-option"{% endif %}>{% if item.option %}<span class="label-icon">{% include "atm_app/_option_icon.html" with label=item.option.label side="left" %}</span><span class="label-text"><strong>{{ item.option.label }}</strong>{% if item.option.sub %}<small title="{{ item.option.sub }}">{{ item.option.sub }}</small>{% endif %}</span>{% endif %}</li>
+              {% endfor %}
+            </ol>
+            <ol class="labels labels-right">
+              {% for item in right %}
+              <li{% if item.option %} class="has-option"{% endif %}>{% if item.option %}<span class="label-icon">{% include "atm_app/_option_icon.html" with label=item.option.label side="right" %}</span><span class="label-text"><strong>{{ item.option.label }}</strong>{% if item.option.sub %}<small title="{{ item.option.sub }}">{{ item.option.sub }}</small>{% endif %}</span>{% endif %}</li>
+              {% endfor %}
+            </ol>
+          </div>
         </div>
 
-        <div class="receipt-printer" id="receipt-printer">
-          <p class="bay-label">Receipt</p>
-          <div class="slot slot-thin"></div>
-          {% if receipt %}
-          <details class="slip">
-            <summary>Receipt printed. Click to view.</summary>
-            <div class="slip-paper">
-              <p class="slip-bank">{{ receipt.bank_name }}</p>
-              <dl>
-                {% for label, value in receipt.rows %}
-                <dt>{{ label }}</dt>
-                <dd>{{ value }}</dd>
-                {% endfor %}
-              </dl>
-            </div>
-          </details>
-          {% else %}
-          <p class="bay-note">No receipt.</p>
-          {% endif %}
+        <div class="side-buttons side-right">
+          {% for item in right %}
+          <button type="submit" form="choose-form" name="slot" value="{{ item.slot }}" class="side-button" id="slot-{{ item.slot }}"{% if not item.option %} disabled{% endif %}><span class="visually-hidden">{% if item.option %}{{ item.option.label }}{% else %}Not available{% endif %}</span></button>
+          {% endfor %}
         </div>
-      </div>
+      </section>
 
-      <div class="keypad" id="keypad">
-        <div class="keypad-numbers">
-          <button type="button" class="key" data-key="1">1</button>
-          <button type="button" class="key" data-key="2">2</button>
-          <button type="button" class="key" data-key="3">3</button>
-          <button type="button" class="key" data-key="4">4</button>
-          <button type="button" class="key" data-key="5">5</button>
-          <button type="button" class="key" data-key="6">6</button>
-          <button type="button" class="key" data-key="7">7</button>
-          <button type="button" class="key" data-key="8">8</button>
-          <button type="button" class="key" data-key="9">9</button>
-          <button type="button" class="key" data-key=".">.</button>
-          <button type="button" class="key" data-key="0">0</button>
-          <button type="button" class="key" data-key="00">00</button>
-        </div>
-        <div class="keypad-actions">
-          <button type="submit" form="cancel-form" class="key key-cancel" id="key-cancel">Cancel</button>
-          <button type="button" class="key key-clear" data-key="clear">Clear</button>
-          <button type="submit" form="entry-form" class="key key-enter" id="key-enter"{% if screen.input_mode == "none" %} disabled{% endif %}>Enter</button>
-        </div>
-      </div>
+      <section class="machine-bottom">
+        <div class="bay bay-left">
+          <div class="card-reader" id="card-slot">
+            <p class="bay-label"><svg class="icon" aria-hidden="true"><use href="#i-card"/></svg>Insert card</p>
+            {% if screen.name == "welcome" %}
+            <details class="card-picker">
+              <summary class="slot slot-button" aria-label="Insert card"><span class="slot-light"></span><svg class="icon slot-icon" aria-hidden="true"><use href="#i-card"/></svg></summary>
+              <div class="card-window">
+                <div class="card-panel">
+                  <div class="card-panel-head">
+                    <p class="window-title">Choose your card</p>
+                    <button type="button" class="window-close" aria-label="Close card window"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+                  </div>
+                  <div class="card-list">
+                    {% for card in wallet %}
+                    <form method="post" action="{% url 'atm_app:insert_card' %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="card_number" value="{{ card.card_number }}">
+                      <button type="submit" class="wallet-card {% if card.account_type == 'Savings Account' %}is-savings{% else %}is-checking{% endif %}"{% if card.blocked %} disabled{% endif %}>
+                        <img class="wallet-logo" src="{% static 'atm_app/images/bbko-logo.svg' %}" alt="" width="150" height="38">
+                        <img class="wallet-icon" src="{% static 'atm_app/images/bbko-icon.svg' %}" alt="" width="28" height="28">
+                        <span class="wallet-chip"></span>
+                        <span class="wallet-number">&bull;&bull;&bull;&bull; {{ card.last_four }}</span>
+                        <svg class="icon wallet-nfc" aria-hidden="true"><use href="#i-contactless"/></svg>
+                        <span class="wallet-owner">{{ card.owner }}</span>
+                        <span class="wallet-type">{{ card.account_type }}{% if card.blocked %} - BLOCKED{% endif %}</span>
+                      </button>
+                    </form>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </details>
+            {% elif screen.name == "collect" %}
+            <div class="slot has-card"><span class="slot-light is-busy"></span></div>
+            {% if card_info %}
+            <button type="button" class="wallet-card dispensed-card {% if card_info.account_type == 'Savings Account' %}is-savings{% else %}is-checking{% endif %}" id="dispensed-card" aria-label="Take your card">
+              <img class="wallet-logo" src="{% static 'atm_app/images/bbko-logo.svg' %}" alt="" width="150" height="38">
+              <img class="wallet-icon" src="{% static 'atm_app/images/bbko-icon.svg' %}" alt="" width="28" height="28">
+              <span class="wallet-chip"></span>
+              <span class="wallet-number">&bull;&bull;&bull;&bull; {{ card_info.last_four }}</span>
+              <svg class="icon wallet-nfc" aria-hidden="true"><use href="#i-contactless"/></svg>
+              <span class="wallet-owner">{{ card_info.owner }}</span>
+              <span class="wallet-type">{{ card_info.account_type }}</span>
+            </button>
+            {% endif %}
+            <p class="bay-note">Please take your card.</p>
+            {# Without JavaScript this button ends the session. With JavaScript the items are taken one by one. #}
+            <form id="collect-form" method="post" action="{% url 'atm_app:collect' %}">
+              {% csrf_token %}
+              <button type="submit" class="take-all">Take everything</button>
+            </form>
+            {% else %}
+            <div class="slot has-card"><span class="slot-light is-busy"></span></div>
+            <p class="bay-note">Card inserted</p>
+            {% endif %}
+          </div>
 
-      <div class="bay bay-right">
-        <div class="cash-dispenser" id="cash-dispenser">
-          <p class="bay-label">Cash dispenser</p>
-          <div class="tray">
-            {% if cash_text %}
-            <details class="cash">
-              <summary>Cash ready. Click to take it.</summary>
-              <div class="cash-popup"><div class="banknote">{{ cash_text }}</div></div>
+          <div class="receipt-printer" id="receipt-printer">
+            <p class="bay-label"><svg class="icon" aria-hidden="true"><use href="#i-receipt"/></svg>Receipt</p>
+            <div class="slot slot-thin"></div>
+            {% if receipt %}
+            <details class="slip">
+              <summary>Receipt printed. Click to view.</summary>
+              <div class="slip-paper">
+                <img class="slip-logo" src="{% static 'atm_app/images/bbko-icon.svg' %}" alt="" width="40" height="40">
+                <p class="slip-bank">{{ receipt.bank_name }}</p>
+                <dl>
+                  {% for label, value in receipt.rows %}
+                  <dt>{{ label }}</dt>
+                  <dd>{{ value }}</dd>
+                  {% endfor %}
+                </dl>
+              </div>
             </details>
             {% else %}
-            <p class="bay-note">Empty.</p>
+            <p class="bay-note">No receipt.</p>
             {% endif %}
           </div>
         </div>
 
-        <div class="deposit" id="deposit-slot">
-          <p class="bay-label">Deposit slot</p>
-          <div class="slot slot-thin"></div>
+        <div class="keypad" id="keypad">
+          <div class="keypad-numbers">
+            <button type="button" class="key" data-key="1">1</button>
+            <button type="button" class="key" data-key="2">2</button>
+            <button type="button" class="key" data-key="3">3</button>
+            <button type="button" class="key" data-key="4">4</button>
+            <button type="button" class="key" data-key="5">5</button>
+            <button type="button" class="key" data-key="6">6</button>
+            <button type="button" class="key" data-key="7">7</button>
+            <button type="button" class="key" data-key="8">8</button>
+            <button type="button" class="key" data-key="9">9</button>
+            <button type="button" class="key" data-key=".">.</button>
+            <button type="button" class="key" data-key="0">0</button>
+            <button type="button" class="key" data-key="00">00</button>
+          </div>
+          <div class="keypad-actions">
+            <button type="submit" form="cancel-form" class="key key-cancel" id="key-cancel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Cancel</button>
+            <button type="button" class="key key-clear" data-key="clear"><svg class="icon" aria-hidden="true"><use href="#i-backspace"/></svg>Clear</button>
+            <button type="submit" form="entry-form" class="key key-enter" id="key-enter"{% if screen.input_mode == "none" %} disabled{% endif %}><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Enter</button>
+          </div>
         </div>
-      </div>
-    </section>
-  </main>
+
+        <div class="bay bay-right">
+          <div class="cash-dispenser" id="cash-dispenser">
+            <p class="bay-label"><svg class="icon" aria-hidden="true"><use href="#i-banknote"/></svg>Cash dispenser</p>
+            <div class="tray">
+              {% if cash_text %}
+              <details class="cash">
+                <summary>Cash ready. Click to take it.</summary>
+                <div class="cash-popup"><div class="banknote"><img class="banknote-logo" src="{% static 'atm_app/images/bbko-icon.svg' %}" alt="" width="32" height="32"><span>{{ cash_text }}</span></div></div>
+              </details>
+              {% else %}
+              <p class="bay-note">Empty.</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="deposit" id="deposit-slot">
+            <p class="bay-label"><svg class="icon" aria-hidden="true"><use href="#i-deposit"/></svg>Deposit slot</p>
+            <div class="slot slot-thin"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <section class="demo-controls" id="demo-controls">
     <h2>Demo controls (not part of the ATM)</h2>
@@ -221,23 +245,25 @@
       <button type="submit">Reset demo data</button>
     </form>
     <p>Starting demo PINs (fictional). They do not update if you use Change PIN.</p>
-    <table>
-      <thead>
-        <tr><th>Owner</th><th>Account</th><th>Card</th><th>Starting PIN</th></tr>
-      </thead>
-      <tbody>
-        {% for row in demo_help %}
-        <tr>
-          <td>{{ row.owner }}</td>
-          <td>{{ row.account_type }}</td>
-          <td>ending {{ row.last_four }}</td>
-          <td>{{ row.pin }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Owner</th><th>Account</th><th>Card</th><th>Starting PIN</th></tr>
+        </thead>
+        <tbody>
+          {% for row in demo_help %}
+          <tr>
+            <td data-label="Owner">{{ row.owner }}</td>
+            <td data-label="Account">{{ row.account_type }}</td>
+            <td data-label="Card">ending {{ row.last_four }}</td>
+            <td data-label="Starting PIN">{{ row.pin }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 
-  <script src="{% static 'atm_app/js/script.js' %}?v=2" defer></script>
+  <script src="{% static 'atm_app/js/script.js' %}?v=3" defer></script>
 </body>
 </html>
