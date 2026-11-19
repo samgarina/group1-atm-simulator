@@ -14,10 +14,10 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path, include 
+from django.urls import path, include
 
+# The Django admin route was removed: this app has no database, so /admin/
+# could only crash. All ATM pages live in atm_app.urls.
 urlpatterns = [
-    path('admin/', admin.site.urls),
     path("", include("atm_app.urls")),
 ]
