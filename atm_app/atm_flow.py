@@ -12,12 +12,12 @@ A PIN is never saved in it.
 from .atm_classes import _to_money, format_money
 from .exceptions import ATMError, CardBlockedError
 
-WELCOME_MESSAGE = "Welcome to PELEC Bank.\nPlease insert your ATM card."
+WELCOME_MESSAGE = "Welcome to BBko.\nPlease insert your ATM Bai card."
 PIN_MESSAGE = "Please enter your six-digit PIN."
 MENU_MESSAGE = "Please select a service."
 AMOUNT_MESSAGE = "Please enter the amount."
 EJECT_MESSAGE = "Please take your card."
-THANK_YOU_MESSAGE = "Thank you for using PELEC Bank.\nPlease insert your card."
+THANK_YOU_MESSAGE = "Thank you for using BBko.\nPlease insert your Bai card."
 OUT_OF_STEP_MESSAGE = "Please follow the instructions on the screen."
 INVALID_SELECTION_MESSAGE = "Invalid selection."
 
