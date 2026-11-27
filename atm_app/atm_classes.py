@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from .exceptions import (
     ATMError,
     CardBlockedError,
+    DepositLimitError,
     IncorrectPinError,
     InsufficientFundsError,
     InvalidAmountError,
@@ -121,6 +122,7 @@ class Account:
     MINIMUM_BALANCE = Decimal("0.00")   # must remain in the account after a withdrawal
     MIN_WITHDRAWAL = Decimal("100.00")  # smallest amount allowed in one withdrawal
     MIN_DEPOSIT = Decimal("100.00")     # smallest amount allowed in one deposit
+    MAX_DEPOSIT = None                  # no limit here. Child classes set their own.
     BILL_STEP = Decimal("100")          # cash is withdrawn or deposited in multiples of this
 
     # Only the newest transactions are saved in the session cookie.
@@ -192,6 +194,12 @@ class Account:
         amount = self._validate_amount(amount)
         if amount < self.MIN_DEPOSIT:
             raise MinimumDepositError(f"Minimum deposit is PHP {self.MIN_DEPOSIT}.")
+        # One deposit cannot be above the limit. The limit is for one transaction,
+        # not for the total balance.
+        if self.MAX_DEPOSIT is not None and amount > self.MAX_DEPOSIT:
+            raise DepositLimitError(
+                f"Maximum deposit is {format_money(self.MAX_DEPOSIT)} per transaction."
+            )
         self._check_bill_step(amount)
         return amount
 
@@ -265,6 +273,7 @@ class SavingsAccount(Account):
     account_type = "Savings Account"
     MINIMUM_BALANCE = Decimal("500.00")
     MAX_WITHDRAWAL = Decimal("5000.00")
+    MAX_DEPOSIT = Decimal("20000.00")
 
     def __init__(self, account_number, holder_name, balance="0", transactions=None):
         # Let the parent do its normal setup and checks first.
@@ -299,6 +308,7 @@ class CheckingAccount(Account):
 
     account_type = "Checking Account"
     MAX_WITHDRAWAL = Decimal("20000.00")
+    MAX_DEPOSIT = Decimal("20000.00")
 
     def check_withdrawal(self, amount):
         # Common rules first (amount, minimum withdrawal, bills, balance).
@@ -319,7 +329,7 @@ class Receipt:
     and the account's fixed minimum balance.
     """
 
-    BANK_NAME = "PELEC Bank"
+    BANK_NAME = "BBko"
     LOCATION = "CTU"
     TYPE_LABELS = {
         "withdrawal": "Cash Withdrawal",

@@ -13,7 +13,7 @@ from .atm_classes import (
 )
 
 from .exceptions import (
-    ATMError, CardBlockedError, IncorrectPinError, InsufficientFundsError,
+    ATMError, CardBlockedError, DepositLimitError, IncorrectPinError, InsufficientFundsError,
     InvalidAmountError, InvalidPinError, MinimumDepositError, MinimumWithdrawalError,
     WithdrawalLimitError,
 )
@@ -277,9 +277,11 @@ class DepositRuleTests(unittest.TestCase):
         self.assertEqual(ctx.exception.message, "Amount must be in multiples of PHP 100.")
 
     def test_large_deposit_in_whole_bills_is_allowed(self):
-        acc = CheckingAccount("C", "B", "0")
-        acc.deposit("50000")
-        self.assertEqual(acc.balance, D("50000.00"))
+        # A big deposit is fine while it stays at or under the PHP 20,000 limit.
+        for acc in (SavingsAccount("S", "A", "500"), CheckingAccount("C", "B", "500")):
+            with self.subTest(acc=acc.account_type):
+                acc.deposit("19900")
+                self.assertEqual(acc.balance, D("20400.00"))
 
     def test_check_deposit_changes_nothing(self):
         acc = CheckingAccount("C", "B", "5000")
@@ -288,6 +290,132 @@ class DepositRuleTests(unittest.TestCase):
         self.assertEqual(acc.transactions, [])
         with self.assertRaises(MinimumDepositError):
             acc.check_deposit("99")
+
+class DepositLimitTests(unittest.TestCase):
+    """One deposit cannot be above PHP 20,000. The limit is not on the total balance."""
+
+    LIMIT_MESSAGE = "Maximum deposit is PHP 20,000.00 per transaction."
+
+    def accounts(self, balance="5000"):
+        return (SavingsAccount("S", "A", balance), CheckingAccount("C", "B", balance))
+
+    def test_each_account_class_defines_its_own_limit(self):
+        self.assertEqual(SavingsAccount.MAX_DEPOSIT, D("20000.00"))
+        self.assertEqual(CheckingAccount.MAX_DEPOSIT, D("20000.00"))
+        # vars() shows only what the class itself defines, not what it inherits.
+        self.assertIn("MAX_DEPOSIT", vars(SavingsAccount))
+        self.assertIn("MAX_DEPOSIT", vars(CheckingAccount))
+
+    def test_exactly_the_limit_is_accepted(self):
+        for acc in self.accounts():
+            with self.subTest(acc=acc.account_type):
+                transaction = acc.deposit("20000")
+                self.assertEqual(transaction.amount, D("20000.00"))
+                self.assertEqual(acc.balance, D("25000.00"))
+                self.assertEqual(len(acc.transactions), 1)
+
+    def test_check_deposit_accepts_exactly_the_limit(self):
+        for acc in self.accounts():
+            with self.subTest(acc=acc.account_type):
+                self.assertEqual(acc.check_deposit("20000"), D("20000.00"))
+
+    def test_above_the_limit_is_rejected_by_deposit(self):
+        for amount in ("20100", "25000", "50000", "20000.01"):
+            for acc in self.accounts():
+                with self.subTest(acc=acc.account_type, amount=amount):
+                    with self.assertRaises(DepositLimitError) as ctx:
+                        acc.deposit(amount)
+                    self.assertEqual(ctx.exception.message, self.LIMIT_MESSAGE)
+                    self.assertEqual(acc.balance, D("5000.00"))
+                    self.assertEqual(acc.transactions, [])
+
+    def test_above_the_limit_is_rejected_by_check_deposit(self):
+        for amount in ("20100", "50000"):
+            for acc in self.accounts():
+                with self.subTest(acc=acc.account_type, amount=amount):
+                    with self.assertRaises(DepositLimitError):
+                        acc.check_deposit(amount)
+
+    def test_check_deposit_changes_nothing(self):
+        for acc in self.accounts():
+            with self.subTest(acc=acc.account_type):
+                acc.check_deposit("20000")
+                with self.assertRaises(DepositLimitError):
+                    acc.check_deposit("20100")
+                self.assertEqual(acc.balance, D("5000.00"))
+                self.assertEqual(acc.transactions, [])
+
+    def test_limit_is_per_transaction_not_for_the_balance(self):
+        for acc in self.accounts("500"):
+            with self.subTest(acc=acc.account_type):
+                for _ in range(3):
+                    acc.deposit("20000")
+                self.assertEqual(acc.balance, D("60500.00"))
+                self.assertEqual(len(acc.transactions), 3)
+                acc.deposit("100")  # still fine with a balance above the limit
+                self.assertEqual(acc.balance, D("60600.00"))
+
+    def test_account_opens_with_a_balance_above_the_limit(self):
+        # The limit is only for deposits. It is never checked against the balance.
+        self.assertEqual(SavingsAccount("S", "A", "90000").balance, D("90000.00"))
+        self.assertEqual(CheckingAccount("C", "B", "90000").balance, D("90000.00"))
+
+    def test_the_two_limits_work_independently(self):
+        with mock.patch.object(SavingsAccount, "MAX_DEPOSIT", D("10000.00")):
+            savings, checking = self.accounts()
+            with self.assertRaises(DepositLimitError) as ctx:
+                savings.deposit("15000")
+            self.assertEqual(ctx.exception.message,
+                             "Maximum deposit is PHP 10,000.00 per transaction.")
+            checking.deposit("15000")
+            self.assertEqual(checking.balance, D("20000.00"))
+        with mock.patch.object(CheckingAccount, "MAX_DEPOSIT", D("10000.00")):
+            savings, checking = self.accounts()
+            savings.deposit("15000")
+            self.assertEqual(savings.balance, D("20000.00"))
+            with self.assertRaises(DepositLimitError):
+                checking.deposit("15000")
+
+    def test_minimum_and_bill_step_rules_still_apply(self):
+        for acc in self.accounts():
+            with self.subTest(acc=acc.account_type):
+                with self.assertRaises(MinimumDepositError):
+                    acc.deposit("50")
+                with self.assertRaises(InvalidAmountError):
+                    acc.deposit("250")
+                with self.assertRaises(InvalidAmountError):
+                    acc.deposit("0")
+                acc.deposit("100")
+                self.assertEqual(acc.balance, D("5100.00"))
+
+    def test_generic_account_has_no_deposit_limit(self):
+        self.assertIsNone(Account.MAX_DEPOSIT)
+        account = Account("G", "Generic", "0")
+        account.deposit("50000")
+        self.assertEqual(account.balance, D("50000.00"))
+
+    def test_deposit_limit_error_is_its_own_atm_error(self):
+        self.assertTrue(issubclass(DepositLimitError, ATMError))
+        self.assertFalse(issubclass(DepositLimitError, WithdrawalLimitError))
+        self.assertEqual(DepositLimitError().message, self.LIMIT_MESSAGE)
+
+    def test_withdrawal_limits_are_unchanged(self):
+        with self.assertRaises(WithdrawalLimitError):
+            SavingsAccount("S", "A", "50000").withdraw("5100")
+        with self.assertRaises(WithdrawalLimitError):
+            CheckingAccount("C", "B", "50000").withdraw("20100")
+        self.assertEqual(CheckingAccount("C", "B", "50000").withdraw("20000").amount,
+                         D("20000.00"))
+
+    def test_saved_data_round_trip_after_limit_deposits(self):
+        for acc in self.accounts("500"):
+            with self.subTest(acc=acc.account_type):
+                acc.deposit("20000")
+                with self.assertRaises(DepositLimitError):
+                    acc.deposit("20100")
+                restored = type(acc).from_dict(json.loads(json.dumps(acc.to_dict())))
+                self.assertEqual(restored.balance, D("20500.00"))
+                self.assertEqual(len(restored.transactions), 1)
 
 class PolymorphismTests(unittest.TestCase):
     """Goal 9: same call, different result."""

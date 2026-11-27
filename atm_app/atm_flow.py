@@ -12,12 +12,12 @@ A PIN is never saved in it.
 from .atm_classes import _to_money, format_money
 from .exceptions import ATMError, CardBlockedError
 
-WELCOME_MESSAGE = "Welcome to PELEC Bank.\nPlease insert your ATM card."
+WELCOME_MESSAGE = "Welcome to BBko.\nPlease insert your ATM Bai card."
 PIN_MESSAGE = "Please enter your six-digit PIN."
 MENU_MESSAGE = "Please select a service."
 AMOUNT_MESSAGE = "Please enter the amount."
 EJECT_MESSAGE = "Please take your card."
-THANK_YOU_MESSAGE = "Thank you for using PELEC Bank.\nPlease insert your card."
+THANK_YOU_MESSAGE = "Thank you for using BBko.\nPlease insert your Bai card."
 OUT_OF_STEP_MESSAGE = "Please follow the instructions on the screen."
 INVALID_SELECTION_MESSAGE = "Invalid selection."
 
@@ -237,6 +237,11 @@ class ATMFlow:
         limit = getattr(account, "MAX_WITHDRAWAL", None)
         return "No limit" if limit is None else format_money(limit)
 
+    @staticmethod
+    def _deposit_limit_text(account):
+        limit = getattr(account, "MAX_DEPOSIT", None)
+        return "No limit" if limit is None else format_money(limit)
+
     # ------------------------------------------------------------------
     # what the monitor shows
     # ------------------------------------------------------------------
@@ -301,6 +306,7 @@ class ATMFlow:
         account = self._account()
         rows = [
             ("Minimum Deposit", format_money(account.MIN_DEPOSIT)),
+            ("Maximum Deposit", self._deposit_limit_text(account)),
             ("In multiples of", f"PHP {account.BILL_STEP}"),
         ]
         return Screen("deposit_amount", "CASH DEPOSIT", self._state["message"],

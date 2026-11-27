@@ -310,10 +310,16 @@
     });
   });
 
-  // A click outside the card window closes it.
+  // The card window closes when you click outside it, on the dimmed background,
+  // or on its close button.
   document.addEventListener("click", function (event) {
     const picker = document.querySelector(".card-picker");
-    if (picker && picker.open && !picker.contains(event.target)) picker.open = false;
+    if (!picker || !picker.open) return;
+    const target = event.target;
+    const outside = !picker.contains(target);
+    const backdrop = target.classList && target.classList.contains("card-window");
+    const closeButton = target.closest && target.closest(".window-close");
+    if (outside || backdrop || closeButton) picker.open = false;
   });
 
   // Computer keyboard. It calls the same functions as the keypad.

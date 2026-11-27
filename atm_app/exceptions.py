@@ -56,3 +56,8 @@ class MinimumDepositError(ATMError):
     """Deposit is below the account's minimum deposit."""
 
     default_message = "Amount is below the minimum deposit."
+
+class DepositLimitError(ATMError):
+    """Deposit is above the account's maximum for one transaction."""
+
+    default_message = "Maximum deposit is PHP 20,000.00 per transaction."
