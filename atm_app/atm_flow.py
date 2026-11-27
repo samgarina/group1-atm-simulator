@@ -237,6 +237,11 @@ class ATMFlow:
         limit = getattr(account, "MAX_WITHDRAWAL", None)
         return "No limit" if limit is None else format_money(limit)
 
+    @staticmethod
+    def _deposit_limit_text(account):
+        limit = getattr(account, "MAX_DEPOSIT", None)
+        return "No limit" if limit is None else format_money(limit)
+
     # ------------------------------------------------------------------
     # what the monitor shows
     # ------------------------------------------------------------------
@@ -301,6 +306,7 @@ class ATMFlow:
         account = self._account()
         rows = [
             ("Minimum Deposit", format_money(account.MIN_DEPOSIT)),
+            ("Maximum Deposit", self._deposit_limit_text(account)),
             ("In multiples of", f"PHP {account.BILL_STEP}"),
         ]
         return Screen("deposit_amount", "CASH DEPOSIT", self._state["message"],
