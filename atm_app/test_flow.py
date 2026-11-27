@@ -2,8 +2,9 @@ import json
 from decimal import Decimal
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
-from .atm_classes import ATMService
+from .atm_classes import ATMService, CheckingAccount, SavingsAccount
 from .atm_flow import ATMFlow, Screen
 from .exceptions import ATMError
 from .session_state import FLOW_KEY, RUN_KEY, load_flow, save_flow
@@ -406,6 +407,126 @@ class WithdrawalFlowTests(unittest.TestCase):
         self.assertTrue(flow.card_inserted)
 
 
+class DepositLimitFlowTests(unittest.TestCase):
+    """The deposit screen and flow enforce the PHP 20,000 limit for each deposit."""
+
+    LIMIT_MESSAGE = "Maximum deposit is PHP 20,000.00 per transaction."
+
+    # (card, pin, account number, starting balance)
+    CUSTOMERS = (
+        (SAVINGS_CARD, SAVINGS_PIN, "1001", D("15000.00")),
+        (CHECKING_CARD, CHECKING_PIN, "2001", D("25000.00")),
+    )
+
+    @staticmethod
+    def open_deposit(flow):
+        flow.choose("R2")   # Additional Services
+        flow.choose("L1")   # Cash Deposit
+
+    def test_deposit_screen_shows_minimum_maximum_and_step(self):
+        for card, pin, _, _ in self.CUSTOMERS:
+            with self.subTest(card=card):
+                _, flow = login(card, pin)
+                self.open_deposit(flow)
+                self.assertEqual(flow.screen_name, "deposit_amount")
+                self.assertEqual(
+                    flow.screen().rows,
+                    [("Minimum Deposit", "PHP 100.00"),
+                     ("Maximum Deposit", "PHP 20,000.00"),
+                     ("In multiples of", "PHP 100")],
+                )
+
+    def test_displayed_maximum_comes_from_the_account(self):
+        # Change the account limit. The screen must follow it (no hardcoded text).
+        with mock.patch.object(SavingsAccount, "MAX_DEPOSIT", D("15000.00")):
+            _, flow = login(SAVINGS_CARD, SAVINGS_PIN)
+            self.open_deposit(flow)
+            self.assertEqual(dict(flow.screen().rows)["Maximum Deposit"], "PHP 15,000.00")
+        with mock.patch.object(CheckingAccount, "MAX_DEPOSIT", D("30000.00")):
+            _, flow = login(CHECKING_CARD, CHECKING_PIN)
+            self.open_deposit(flow)
+            self.assertEqual(dict(flow.screen().rows)["Maximum Deposit"], "PHP 30,000.00")
+
+    def test_over_the_limit_is_rejected_on_the_deposit_screen(self):
+        for card, pin, number, start in self.CUSTOMERS:
+            for amount in ("20100", "25000", "50000"):
+                with self.subTest(card=card, amount=amount):
+                    service, flow = login(card, pin)
+                    self.open_deposit(flow)
+                    flow.submit_amount(amount)
+                    self.assertEqual(flow.screen_name, "deposit_amount")
+                    self.assertEqual(flow.screen().message, self.LIMIT_MESSAGE)
+                    self.assertIsNone(flow.to_dict()["pending"])   # never reaches confirm
+                    self.assertEqual(service.get_balance(number), start)
+                    self.assertEqual(service.get_history(number), [])
+
+    def test_exactly_the_limit_goes_to_confirmation(self):
+        for card, pin, number, start in self.CUSTOMERS:
+            with self.subTest(card=card):
+                service, flow = login(card, pin)
+                self.open_deposit(flow)
+                flow.submit_amount("20000")
+                self.assertEqual(flow.screen_name, "confirm")
+                self.assertEqual(flow.screen().message, "Deposit PHP 20,000.00?")
+                self.assertEqual(service.get_balance(number), start)   # not yet changed
+
+    def test_confirming_the_limit_deposit_updates_the_balance(self):
+        for card, pin, number, start in self.CUSTOMERS:
+            with self.subTest(card=card):
+                service, flow = login(card, pin)
+                self.open_deposit(flow)
+                flow.submit_amount("20000")
+                flow.choose("L4")   # Yes
+                self.assertEqual(flow.screen_name, "collect")
+                self.assertEqual(service.get_balance(number), start + D("20000.00"))
+                self.assertEqual(len(service.get_history(number)), 1)
+                receipt = flow.receipt_paper()
+                self.assertEqual(receipt.transaction_type, "Cash Deposit")
+                self.assertEqual(receipt.amount, D("20000.00"))
+
+    def test_valid_deposit_works_after_a_rejected_one(self):
+        service, flow = login()
+        self.open_deposit(flow)
+        flow.submit_amount("20100")
+        self.assertEqual(flow.screen().message, self.LIMIT_MESSAGE)
+        flow.submit_amount("20000")
+        self.assertEqual(flow.screen_name, "confirm")
+        flow.choose("L4")
+        self.assertEqual(service.get_balance("1001"), D("35000.00"))
+        self.assertEqual(len(service.get_history("1001")), 1)
+
+    def test_separate_deposits_are_allowed_above_the_limit_in_total(self):
+        service, flow = login()
+        for _ in range(2):
+            self.open_deposit(flow)
+            flow.submit_amount("20000")
+            flow.choose("L4")
+            relogin(flow)
+        self.assertEqual(service.get_balance("1001"), D("55000.00"))
+        self.assertEqual(len(service.get_history("1001")), 2)
+
+    def test_rejected_deposit_state_survives_save_and_load(self):
+        service, flow = login()
+        self.open_deposit(flow)
+        flow.submit_amount("20100")
+        restored = ATMFlow.from_dict(service, json.loads(json.dumps(flow.to_dict())))
+        self.assertEqual(restored.screen_name, "deposit_amount")
+        self.assertEqual(restored.screen().message, self.LIMIT_MESSAGE)
+        self.assertEqual(service.get_balance("1001"), D("15000.00"))
+
+    def test_withdrawal_screen_and_rules_are_unchanged(self):
+        _, flow = login()
+        flow.choose("L2")
+        self.assertEqual(
+            flow.screen().rows,
+            [("Maximum Withdrawal", "PHP 5,000.00"),
+             ("Minimum Withdrawal", "PHP 100.00"),
+             ("In multiples of", "PHP 100")],
+        )
+        flow.submit_amount("20000")
+        self.assertEqual(flow.screen_name, "withdraw_amount")   # over the savings limit
+
+
 class DepositAndServicesTests(unittest.TestCase):
 
     # DepositAndServicesTests: replaces test_deposit_flow
@@ -417,12 +538,14 @@ class DepositAndServicesTests(unittest.TestCase):
         self.assertEqual(flow.screen_name, "deposit_amount")
         rows = dict(flow.screen().rows)
         self.assertEqual(rows["Minimum Deposit"], "PHP 100.00")
+        self.assertEqual(rows["Maximum Deposit"], "PHP 20,000.00")
         self.assertEqual(rows["In multiples of"], "PHP 100")
         cases = [
             ("0", "Amount must be greater than zero."),
             ("50", "Minimum deposit is PHP 100.00."),
             ("250", "Amount must be in multiples of PHP 100."),
             ("250.50", "Amount must be in multiples of PHP 100."),
+            ("20100", "Maximum deposit is PHP 20,000.00 per transaction."),
         ]
         for amount, message in cases:
             with self.subTest(amount=amount):
